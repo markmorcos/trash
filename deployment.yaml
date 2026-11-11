@@ -1,0 +1,20 @@
+version: 0.8.2
+
+namespace: trash
+project: trash
+
+services:
+  - name: trash
+    image: ghcr.io/markmorcos/trash
+    context: .
+    port: 8080
+    env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef:
+            name: database-secrets
+            key: DATABASE_URL
+    ingress:
+      host: trash.morcos.tech
+      path: /
+      pathType: Prefix
