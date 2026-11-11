@@ -1,4 +1,4 @@
-version: 0.8.2
+version: 0.12.0
 
 namespace: trash
 project: trash
@@ -8,13 +8,66 @@ services:
     image: ghcr.io/markmorcos/trash
     context: .
     port: 8080
+    resources:
+      requests: { cpu: 25m, memory: 96Mi }
+      limits: { memory: 256Mi }
+    readinessProbe:
+      httpGet: { path: /healthz, port: 8080 }
+      periodSeconds: 10
+    livenessProbe:
+      httpGet: { path: /healthz, port: 8080 }
+      initialDelaySeconds: 20
+      periodSeconds: 30
     env:
       - name: DATABASE_URL
         valueFrom:
-          secretKeyRef:
-            name: database-secrets
-            key: DATABASE_URL
+          secretKeyRef: { name: database-secrets, key: DATABASE_URL }
+      # app-secrets is created once by the infrastructure repo's bootstrap-trash workflow.
+      # optional: the app starts without it (login and push stay off until it exists).
+      - name: HOUSE_PASSCODE
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: HOUSE_PASSCODE, optional: true }
+      - name: SESSION_SECRET
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: SESSION_SECRET, optional: true }
+      - name: CRON_TOKEN
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: CRON_TOKEN, optional: true }
+      - name: VAPID_PUBLIC_KEY
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: VAPID_PUBLIC_KEY, optional: true }
+      - name: VAPID_PRIVATE_KEY
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: VAPID_PRIVATE_KEY, optional: true }
+      - name: VAPID_SUBJECT
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: VAPID_SUBJECT, optional: true }
     ingress:
       host: trash.morcos.tech
       path: /
       pathType: Prefix
+      annotations:
+        # WebSockets stay open for a long time; the server pings every 25 s
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+# Both jobs are idempotent, so a retry or a manual re-run never double-sends.
+crons:
+  - name: remind
+    schedule: "0 18 * * 0"
+    timeZone: Europe/Berlin
+    image: curlimages/curl:8.10.1
+    command: ["sh", "-c", 'curl -fsS -X POST -H "Authorization: Bearer $CRON_TOKEN" http://trash-trash-service.trash.svc.cluster.local:8080/internal/remind']
+    env:
+      - name: CRON_TOKEN
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: CRON_TOKEN }
+  - name: rollover
+    schedule: "5 0 * * 1"
+    timeZone: Europe/Berlin
+    image: curlimages/curl:8.10.1
+    command: ["sh", "-c", 'curl -fsS -X POST -H "Authorization: Bearer $CRON_TOKEN" http://trash-trash-service.trash.svc.cluster.local:8080/internal/rollover']
+    env:
+      - name: CRON_TOKEN
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: CRON_TOKEN }
