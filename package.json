@@ -1,0 +1,7 @@
+{
+  "name": "trash",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  }
+}
