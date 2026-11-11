@@ -8,7 +8,6 @@ const WED = new Date("2026-11-11T12:00:00+01:00");
 const SUN = new Date("2026-11-15T17:00:00+01:00");
 
 async function signIn(page: Page, person: string) {
-  expect((await page.request.post("/api/login", { data: { passcode: "4711" } })).ok()).toBe(true);
   expect((await page.request.post("/api/me", { data: { person } })).ok()).toBe(true);
 }
 
@@ -24,31 +23,30 @@ async function open(page: Page, hash: string, ready: string, at = WED) {
 const masks = (page: Page) => [page.locator(".live"), page.getByTestId("conn-info")];
 
 test.describe("joining", () => {
-  test("passcode screen", async ({ page }) => {
+  test("a new device picks a name, no passcode", async ({ page }) => {
     await page.clock.setFixedTime(WED);
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Trash" })).toBeVisible();
-    await page.evaluate(() => document.fonts.ready);
-    await expect(page).toHaveScreenshot("join-passcode.png");
-  });
-
-  test("wrong passcode", async ({ page }) => {
-    await page.clock.setFixedTime(WED);
-    await page.goto("/");
-    await page.getByLabel("House passcode").fill("0000");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByText("That passcode is wrong")).toBeVisible();
-    await expect(page).toHaveScreenshot("join-wrong-passcode.png");
-  });
-
-  test("who are you", async ({ page }) => {
-    await page.clock.setFixedTime(WED);
-    await page.goto("/");
-    await page.getByLabel("House passcode").fill("4711");
-    await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { name: "Who are you?" })).toBeVisible();
+    await expect(page.locator("button.tile")).toHaveCount(5);
     await page.evaluate(() => document.fonts.ready);
     await expect(page).toHaveScreenshot("join-who.png");
+  });
+
+  test("picking a name opens this week and is remembered", async ({ page }) => {
+    await page.clock.setFixedTime(WED);
+    await page.goto("/");
+    await page.getByRole("button", { name: /Liz/ }).click();
+    await expect(page.getByRole("heading", { name: "Week 46" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Week 46" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Who are you?" })).toHaveCount(0);
+  });
+
+  test("switching person goes back to the picker", async ({ page }) => {
+    await signIn(page, "mark");
+    await open(page, "settings", "Settings");
+    await page.getByRole("button", { name: "I'm not Mark" }).click();
+    await expect(page.getByRole("heading", { name: "Who are you?" })).toBeVisible();
   });
 });
 

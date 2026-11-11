@@ -4,6 +4,8 @@ Who takes which bin this week. A small website for the five of us: four bins rot
 
 Live at https://trash.morcos.tech
 
+There is no passcode or account: whoever has the link picks their name, and the device remembers it for 90 days.
+
 ## How the rotation works
 
 - Weeks run Monday 00:00 to Sunday 23:59, Europe/Berlin.
@@ -30,8 +32,8 @@ The logic is in `src/shared/rotation.ts`. The browser and the server use the sam
 
 | Route | For |
 | --- | --- |
-| `POST /api/login` | house passcode → signed session cookie |
-| `POST /api/me` | pick who you are |
+| `GET /api/session` | who this device is, and the house list |
+| `POST /api/me` | pick who you are (no passcode: anyone with the link can join) |
 | `GET /api/state` | full state |
 | `GET /ws` | live socket (`hello`, `checkoff`, `uncheckoff`, `override`, `undoOverride`, `updateConfig`) |
 | `/api/push/*` | VAPID key, subscribe, unsubscribe, status |
@@ -44,7 +46,6 @@ The logic is in `src/shared/rotation.ts`. The browser and the server use the sam
 
 | Key | Notes |
 | --- | --- |
-| `HOUSE_PASSCODE` | from the infra repo secret `TRASH_HOUSE_PASSCODE`; re-run the workflow to change it |
 | `SESSION_SECRET` | random; rotating it logs everyone out |
 | `CRON_TOKEN` | random |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | generated once. **Never rotate them**: that breaks every phone's reminders |
@@ -69,8 +70,8 @@ Every change ships with unit, integration and visual tests. CI runs all three be
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Unit | `npm run test:unit` | rotation rules, Berlin weeks and DST, overrides, validation, sessions, passcode limits, message schemas, formatting |
-| Integration | `npm run test:integration` | two real server processes ("pods") on one Postgres: login, socket auth, live sync across pods via NOTIFY, rule errors, swaps/away, stale settings, reminder and rollover jobs, push subscriptions, reconnect |
+| Unit | `npm run test:unit` | rotation rules, Berlin weeks and DST, overrides, validation, signed sessions, message schemas, formatting |
+| Integration | `npm run test:integration` | two real server processes ("pods") on one Postgres: picking a name, socket auth, live sync across pods via NOTIFY, rule errors, swaps/away, stale settings, reminder and rollover jobs, push subscriptions, reconnect |
 | Visual | `npm run test:visual` | Playwright screenshots of every screen at phone size, light and dark (`e2e/__screenshots__`) |
 | Types | `npm run check` | TypeScript + Svelte |
 

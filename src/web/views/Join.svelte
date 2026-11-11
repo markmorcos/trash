@@ -1,26 +1,12 @@
 <script lang="ts">
-  import { app, choose, login } from "../lib/app.svelte";
+  import { app, choose } from "../lib/app.svelte";
 
-  let passcode = $state("");
   let error = $state("");
   let busy = $state(false);
 
-  async function submit(e: SubmitEvent) {
-    e.preventDefault();
-    if (!passcode.trim()) return;
-    busy = true;
-    error = "";
-    try {
-      await login(passcode);
-    } catch (err) {
-      error = (err as Error).message;
-    } finally {
-      busy = false;
-    }
-  }
-
   async function pick(id: string) {
     busy = true;
+    error = "";
     try {
       await choose(id);
     } catch (err) {
@@ -31,22 +17,10 @@
   }
 </script>
 
-{#if app.status === "passcode"}
-  <form class="join" onsubmit={submit}>
-    <h1 class="title">Trash</h1>
-    <p class="sub">Who takes which bin this week. Enter the house passcode to join.</p>
-    {#if !app.passcodeSet}
-      <div class="banner">The passcode isn't set up on the server yet. Run the bootstrap workflow first.</div>
-    {/if}
-    <label class="lbl" for="passcode">House passcode</label>
-    <input id="passcode" type="password" autocomplete="current-password" bind:value={passcode} />
-    {#if error}<div class="banner">{error}</div>{/if}
-    <button class="btn pri" type="submit" disabled={busy}>{busy ? "Checking…" : "Continue"}</button>
-  </form>
-{:else}
-  <div class="join">
-    <h1 class="title">Who are you?</h1>
-    <p class="sub">Pick your magnet. You can change it later in Settings.</p>
+<div class="join">
+  <h1 class="title">Who are you?</h1>
+  <p class="sub">Pick your magnet. This phone remembers it, and you can change it later in Settings.</p>
+  {#if app.people.length}
     <div class="tiles">
       {#each app.people as p (p.id)}
         <button class="tile" disabled={busy} onclick={() => pick(p.id)}>
@@ -56,22 +30,15 @@
         </button>
       {/each}
     </div>
-    {#if error}<div class="banner">{error}</div>{/if}
-  </div>
-{/if}
+  {:else}
+    <div class="banner">Can't reach the server. Check your connection and reload.</div>
+  {/if}
+  {#if error}<div class="banner">{error}</div>{/if}
+</div>
 
 <style>
   .join { display: flex; flex-direction: column; gap: 12px; margin-top: 8vh; }
   .title { font-size: 2.6rem; }
-  input {
-    font: inherit;
-    font-size: 1.05rem;
-    border: 1.5px solid var(--ink);
-    border-radius: 10px;
-    padding: 10px 12px;
-    background: var(--paper);
-    color: var(--ink);
-  }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
   .tile {
     border: 1.5px solid var(--ink);

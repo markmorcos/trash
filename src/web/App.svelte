@@ -23,7 +23,7 @@
 
 {#if app.status === "loading"}
   <main class="center"><p class="sub">Loading…</p></main>
-{:else if app.status === "passcode" || app.status === "who"}
+{:else if app.status === "who"}
   <main><Join /></main>
 {:else if app.state}
   {#if !app.online}

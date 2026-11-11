@@ -1,6 +1,9 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
+// No passcode: whoever has the link picks their name, and this signed cookie
+// remembers the choice on that device.
+
 const COOKIE = "trash_session";
 const MAX_AGE = 90 * 24 * 3600;
 
@@ -11,7 +14,7 @@ if (!secret) {
 }
 
 export interface Session {
-  /** person id, or null after the passcode but before "who are you?" */
+  /** person id, or null after "I'm not …" until they pick again */
   p: string | null;
   iat: number;
 }
@@ -47,28 +50,4 @@ export function readSession(req: IncomingMessage): Session | null {
   } catch {
     return null;
   }
-}
-
-export function checkPasscode(input: string): "ok" | "wrong" | "unset" {
-  const pass = process.env.HOUSE_PASSCODE;
-  if (!pass) return "unset";
-  return safeEqual(input.trim(), pass) ? "ok" : "wrong";
-}
-
-const attempts = new Map<string, { n: number; reset: number }>();
-/** 5 passcode tries per minute per IP. */
-export function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const a = attempts.get(ip);
-  if (!a || a.reset < now) {
-    attempts.set(ip, { n: 1, reset: now + 60_000 });
-    return false;
-  }
-  a.n++;
-  return a.n > 5;
-}
-
-export function clientIp(req: IncomingMessage): string {
-  const fwd = req.headers["x-forwarded-for"];
-  return (Array.isArray(fwd) ? fwd[0] : fwd)?.split(",")[0].trim() || req.socket.remoteAddress || "?";
 }

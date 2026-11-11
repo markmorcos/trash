@@ -5,7 +5,7 @@ import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { currentWeek } from "../shared/rotation";
-import { checkPasscode, clientIp, rateLimited, readSession, safeEqual, sessionCookie } from "./auth";
+import { readSession, safeEqual, sessionCookie } from "./auth";
 import { isTestMode, now, setNow } from "./clock";
 import { loadConfig, loadState, migrate, sql } from "./db";
 import { remind, rollover } from "./jobs";
@@ -64,7 +64,6 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, path: stri
   createReadStream(file).pipe(res);
 }
 
-const Login = z.object({ passcode: z.string().max(100) });
 const Me = z.object({ person: z.string().max(40).nullable() });
 const Sub = z.object({
   endpoint: z.string().url().max(1000),
@@ -105,37 +104,21 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     const s = readSession(req);
     if (m === "GET" && p === "/api/session") {
       const { config } = await loadConfig();
-      return json(res, 200, {
-        authed: Boolean(s),
-        person: s?.p ?? null,
-        people: s ? config.people : [],
-        pushEnabled,
-        passcodeSet: Boolean(process.env.HOUSE_PASSCODE),
-      });
+      return json(res, 200, { person: s?.p ?? null, people: config.people, pushEnabled });
     }
-    if (m === "POST" && p === "/api/login") {
-      if (!isTestMode() && rateLimited(clientIp(req))) return json(res, 429, { error: "Too many tries. Wait a minute and try again." });
-      const { passcode } = Login.parse(await body(req));
-      const r = checkPasscode(passcode);
-      if (r === "unset") return json(res, 503, { error: "The house passcode isn't set up on the server yet." });
-      if (r === "wrong") return json(res, 401, { error: "That passcode is wrong. Check the note on the fridge." });
-      const { config } = await loadConfig();
-      return json(res, 200, { people: config.people }, { "Set-Cookie": sessionCookie({ p: null, iat: Math.floor(Date.now() / 1000) }) });
-    }
-    if (!s) return json(res, 401, { error: "Enter the house passcode first." });
-
+    // No passcode: picking a name is all it takes. The cookie remembers it on this device.
     if (m === "POST" && p === "/api/me") {
       const { person } = Me.parse(await body(req));
       const { config } = await loadConfig();
       if (person && !config.people.some((x) => x.id === person)) return json(res, 400, { error: "Unknown person." });
-      return json(res, 200, { person }, { "Set-Cookie": sessionCookie({ p: person, iat: s.iat }) });
+      return json(res, 200, { person }, { "Set-Cookie": sessionCookie({ p: person, iat: Math.floor(Date.now() / 1000) }) });
     }
+    if (!s?.p) return json(res, 401, { error: "Pick who you are first." });
     if (m === "GET" && p === "/api/state") {
       const { config } = await loadConfig();
       return json(res, 200, await loadState(currentWeek(now(), config.timezone)));
     }
     if (m === "GET" && p === "/api/push/key") return json(res, 200, { key: vapidPublicKey });
-    if (!s.p) return json(res, 401, { error: "Pick who you are first." });
     if (m === "POST" && p === "/api/push/subscribe") {
       const sub = Sub.parse(await body(req));
       await sql`insert into push_subscriptions (endpoint, person, p256dh, auth)

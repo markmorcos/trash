@@ -4,7 +4,6 @@ import WebSocket from "ws";
 import type { ClientMessage, ServerMessage } from "../../src/shared/messages";
 
 export const TEST_ENV = {
-  HOUSE_PASSCODE: "4711",
   SESSION_SECRET: "integration-secret",
   CRON_TOKEN: "integration-cron",
   TRASH_TEST_MODE: "1",
@@ -62,15 +61,11 @@ export async function startPod(extraEnv: Record<string, string> = {}): Promise<P
   };
 }
 
-/** Log in with the passcode and pick a person; returns the cookie header. */
+/** Pick a person (no passcode); returns the cookie header. */
 export async function loginAs(pod: Pod, person: string): Promise<string> {
-  const login = await fetch(pod.url + "/api/login", { method: "POST", body: JSON.stringify({ passcode: TEST_ENV.HOUSE_PASSCODE }) });
-  if (!login.ok) throw new Error("login failed " + login.status);
-  let cookie = login.headers.get("set-cookie")!.split(";")[0];
-  const me = await fetch(pod.url + "/api/me", { method: "POST", headers: { cookie }, body: JSON.stringify({ person }) });
+  const me = await fetch(pod.url + "/api/me", { method: "POST", body: JSON.stringify({ person }) });
   if (!me.ok) throw new Error("me failed " + me.status);
-  cookie = me.headers.get("set-cookie")!.split(";")[0];
-  return cookie;
+  return me.headers.get("set-cookie")!.split(";")[0];
 }
 
 export interface Sock {

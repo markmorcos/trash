@@ -54,23 +54,39 @@ describe.skipIf(!dbUrl)("server integration", () => {
   });
 
   describe("auth", () => {
-    it("rejects a wrong passcode with a clear message", async () => {
-      const r = await fetch(a.url + "/api/login", { method: "POST", body: JSON.stringify({ passcode: "0000" }) });
-      expect(r.status).toBe(401);
-      expect((await r.json()).error).toMatch(/passcode is wrong/);
+    it("lists the house for a new device without any passcode", async () => {
+      const s = await (await fetch(a.url + "/api/session")).json();
+      expect(s.person).toBeNull();
+      expect(s.people.map((p: { id: string }) => p.id)).toEqual(["lea", "liz", "mark", "ari", "francisco"]);
+      // the old passcode login is gone
+      expect([401, 404]).toContain((await fetch(a.url + "/api/login", { method: "POST", body: "{}" })).status);
     });
 
-    it("needs a session for the API and a chosen person for the socket", async () => {
+    it("picking a name is enough, and the device remembers it", async () => {
+      const cookie = await loginAs(a, "ari");
+      const s = await (await fetch(a.url + "/api/session", { headers: { cookie } })).json();
+      expect(s.person).toBe("ari");
+      expect((await fetch(a.url + "/api/state", { headers: { cookie } })).status).toBe(200);
+    });
+
+    it("needs a chosen person for the API and the socket", async () => {
       expect((await fetch(a.url + "/api/state")).status).toBe(401);
       expect(await tryConnect(a)).toBe(401);
-      const login = await fetch(a.url + "/api/login", { method: "POST", body: JSON.stringify({ passcode: "4711" }) });
-      const halfCookie = login.headers.get("set-cookie")!.split(";")[0];
-      expect(await tryConnect(a, halfCookie)).toBe(401);
+      const out = await fetch(a.url + "/api/me", { method: "POST", headers: { cookie: lizCookie }, body: JSON.stringify({ person: null }) });
+      const signedOut = out.headers.get("set-cookie")!.split(";")[0];
+      expect(await tryConnect(a, signedOut)).toBe(401);
+      expect((await fetch(a.url + "/api/state", { headers: { cookie: signedOut } })).status).toBe(401);
       expect(await tryConnect(a, lizCookie)).toBe(101);
     });
 
+    it("rejects a forged cookie", async () => {
+      const forged = "trash_session=" + Buffer.from(JSON.stringify({ p: "mark", iat: Date.now() / 1000 })).toString("base64url") + ".bad";
+      expect((await fetch(a.url + "/api/state", { headers: { cookie: forged } })).status).toBe(401);
+      expect(await tryConnect(a, forged)).toBe(401);
+    });
+
     it("refuses unknown people", async () => {
-      const r = await fetch(a.url + "/api/me", { method: "POST", headers: { cookie: lizCookie }, body: JSON.stringify({ person: "eve" }) });
+      const r = await fetch(a.url + "/api/me", { method: "POST", body: JSON.stringify({ person: "eve" }) });
       expect(r.status).toBe(400);
     });
 

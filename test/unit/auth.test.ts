@@ -6,7 +6,6 @@ let auth: Auth;
 
 beforeAll(async () => {
   vi.stubEnv("SESSION_SECRET", "unit-test-secret");
-  vi.stubEnv("HOUSE_PASSCODE", "4711");
   auth = await import("../../src/server/auth");
 });
 
@@ -43,26 +42,7 @@ describe("session cookie", () => {
   });
 });
 
-describe("passcode", () => {
-  it("accepts the right code, trims spaces, rejects others", () => {
-    expect(auth.checkPasscode("4711")).toBe("ok");
-    expect(auth.checkPasscode(" 4711 ")).toBe("ok");
-    expect(auth.checkPasscode("1234")).toBe("wrong");
-    expect(auth.checkPasscode("")).toBe("wrong");
-  });
-
-  it("allows 5 tries per minute per IP", () => {
-    const ip = "192.0.2.9";
-    const results = Array.from({ length: 6 }, () => auth.rateLimited(ip));
-    expect(results).toEqual([false, false, false, false, false, true]);
-    expect(auth.rateLimited("192.0.2.10")).toBe(false);
-  });
-
-  it("uses the first X-Forwarded-For address", () => {
-    expect(auth.clientIp(req({ "x-forwarded-for": "203.0.113.5, 10.0.0.2" }))).toBe("203.0.113.5");
-    expect(auth.clientIp(req({}, "10.1.2.3"))).toBe("10.1.2.3");
-  });
-
+describe("helpers", () => {
   it("compares in constant time without throwing on length mismatch", () => {
     expect(auth.safeEqual("abc", "abc")).toBe(true);
     expect(auth.safeEqual("abc", "abcd")).toBe(false);

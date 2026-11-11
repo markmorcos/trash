@@ -1,7 +1,7 @@
 import type { ClientMessage, ServerMessage } from "../../shared/messages";
 import { currentWeek, localDate, type Person, type State } from "../../shared/rotation";
 
-type Status = "loading" | "passcode" | "who" | "ready";
+type Status = "loading" | "who" | "ready";
 export type Tab = "week" | "upcoming" | "changes" | "settings";
 
 const CACHE = "trash:state";
@@ -23,7 +23,6 @@ export const app = $state({
   online: false,
   presence: [] as string[],
   pushEnabled: false,
-  passcodeSet: true,
   tab: "week" as Tab,
   selectedWeek: null as string | null,
   toast: null as { title: string; body: string; kind: "info" | "error" } | null,
@@ -79,14 +78,10 @@ export async function init() {
     }
   });
   try {
-    const s = await api<{ authed: boolean; person: string | null; people: Person[]; pushEnabled: boolean; passcodeSet: boolean }>(
-      "/api/session",
-    );
+    const s = await api<{ person: string | null; people: Person[]; pushEnabled: boolean }>("/api/session");
     app.pushEnabled = s.pushEnabled;
-    app.passcodeSet = s.passcodeSet;
     app.people = s.people;
-    if (!s.authed) app.status = "passcode";
-    else if (!s.person) app.status = "who";
+    if (!s.person) app.status = "who";
     else {
       app.me = s.person;
       app.status = "ready";
@@ -94,15 +89,9 @@ export async function init() {
     }
   } catch {
     // offline on first load: show the cached week if we have one
-    app.status = app.state ? "ready" : "passcode";
+    app.status = app.state ? "ready" : "who";
     if (app.state) scheduleReconnect();
   }
-}
-
-export async function login(passcode: string) {
-  const r = await api<{ people: Person[] }>("/api/login", { method: "POST", body: JSON.stringify({ passcode }) });
-  app.people = r.people;
-  app.status = "who";
 }
 
 export async function choose(personId: string) {
@@ -166,12 +155,12 @@ async function scheduleReconnect() {
   const delay = Math.min(30_000, 1000 * 2 ** attempt) * (0.8 + Math.random() * 0.4);
   attempt++;
   retry = setTimeout(async () => {
-    // every few tries, check the session is still valid (e.g. passcode changed)
+    // every few tries, check the session is still valid (e.g. cookie expired)
     if (attempt % 3 === 0) {
       try {
-        const s = await api<{ authed: boolean; person: string | null }>("/api/session");
-        if (!s.authed || !s.person) {
-          app.status = s.authed ? "who" : "passcode";
+        const s = await api<{ person: string | null }>("/api/session");
+        if (!s.person) {
+          app.status = "who";
           wanted = false;
           return;
         }

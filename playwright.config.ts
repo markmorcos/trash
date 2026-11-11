@@ -33,7 +33,6 @@ export default defineConfig({
       TEST_DATABASE_URL: db,
       DATABASE_URL: db,
       PORT: String(PORT),
-      HOUSE_PASSCODE: "4711",
       SESSION_SECRET: "visual-secret",
       CRON_TOKEN: "visual-cron",
       TRASH_TEST_MODE: "1",

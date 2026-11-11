@@ -23,10 +23,7 @@ services:
         valueFrom:
           secretKeyRef: { name: database-secrets, key: DATABASE_URL }
       # app-secrets is created once by the infrastructure repo's bootstrap-trash workflow.
-      # optional: the app starts without it (login and push stay off until it exists).
-      - name: HOUSE_PASSCODE
-        valueFrom:
-          secretKeyRef: { name: app-secrets, key: HOUSE_PASSCODE, optional: true }
+      # optional: the app starts without it (push stays off until it exists).
       - name: SESSION_SECRET
         valueFrom:
           secretKeyRef: { name: app-secrets, key: SESSION_SECRET, optional: true }
