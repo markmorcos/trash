@@ -1,4 +1,19 @@
 /* Fridge steel background, paper cards, hand-lettered headings like the fridge board. */
+/* Fonts are self-hosted (latin subset, SIL OFL) so the app works offline. */
+@font-face {
+  font-family: "Patrick Hand";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/patrick-hand-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/public-sans-latin.woff2") format("woff2");
+}
 :root {
   --bg: #d5d9dd;
   --bg-2: #c8cdd2;

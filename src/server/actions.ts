@@ -10,6 +10,7 @@ import {
   type Override,
 } from "../shared/rotation";
 import { loadConfig, mutate, sql } from "./db";
+import { now as clockNow } from "./clock";
 import { pushTo } from "./push";
 
 export class ActionError extends Error {
@@ -40,7 +41,7 @@ const OVERRIDE_MESSAGES: Record<string, string> = {
 /** Apply one client intent for `me`. Throws ActionError on a rule violation. */
 export async function handle(msg: ClientMessage, me: string): Promise<void> {
   const { config } = await loadConfig();
-  const now = currentWeek(new Date(), config.timezone);
+  const now = currentWeek(clockNow(), config.timezone);
 
   switch (msg.type) {
     case "hello":

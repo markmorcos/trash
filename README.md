@@ -58,12 +58,34 @@ docker compose up -d          # Postgres on :5433
 npm install
 npm run build && npm run dev  # server on :8080 serving dist/web
 npm run dev:web               # optional: Vite on :5173 with hot reload, proxying /api and /ws
-npm test                      # rotation tests
-npm run check                 # TypeScript + Svelte checks
 ```
 
 Push works on `localhost` without HTTPS, so you can test reminders in Chrome: turn them on in Settings, then
 `curl -X POST -H "Authorization: Bearer dev-cron-token" localhost:8080/internal/remind`.
+
+## Tests
+
+Every change ships with unit, integration and visual tests. CI runs all three before it deploys.
+
+| Suite | Command | What it covers |
+| --- | --- | --- |
+| Unit | `npm run test:unit` | rotation rules, Berlin weeks and DST, overrides, validation, sessions, passcode limits, message schemas, formatting |
+| Integration | `npm run test:integration` | two real server processes ("pods") on one Postgres: login, socket auth, live sync across pods via NOTIFY, rule errors, swaps/away, stale settings, reminder and rollover jobs, push subscriptions, reconnect |
+| Visual | `npm run test:visual` | Playwright screenshots of every screen at phone size, light and dark (`e2e/__screenshots__`) |
+| Types | `npm run check` | TypeScript + Svelte |
+
+Integration and visual tests need a disposable database:
+
+```bash
+export TEST_DATABASE_URL=postgres://trash_app:dev@localhost:5433/trash_test   # wiped on every run
+npm test && npm run test:visual
+```
+
+The server's clock is pinned to Wed 11 Nov 2026 in tests (`TRASH_TEST_MODE=1`, `TRASH_FAKE_NOW`), so the screenshots always show the same week.
+
+**Changing the UI on purpose:** run `npm run test:visual:update` and commit the new screenshots. CI renders inside the
+Playwright 1.63 image; if its screenshots differ from yours, run the workflow manually with **update_snapshots** ticked
+and it regenerates and commits them.
 
 ## Deploy
 

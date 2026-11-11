@@ -8,7 +8,7 @@ import {
   nextRestWeek,
   validateOverride,
   type Override,
-} from "../src/shared/rotation";
+} from "../../src/shared/rotation";
 
 const ov = (o: Partial<Override>): Override => ({
   id: Math.random().toString(),

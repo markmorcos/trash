@@ -11,7 +11,12 @@
     "build": "vite build && esbuild src/server/index.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outfile=dist/server.js",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "check": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
+    "check": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "test:visual": "npm run build && playwright test",
+    "test:visual:update": "npm run build && playwright test --update-snapshots",
+    "test:all": "npm run check && vitest run && npm run test:visual"
   },
   "dependencies": {
     "postgres": "^4.1.1",
@@ -20,6 +25,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/node": "^26.6.6",
     "@types/web-push": "^3.6.4",

@@ -1,5 +1,5 @@
 // Service worker: keeps the app shell available offline and shows push notifications.
-const CACHE = "trash-shell-v1";
+const CACHE = "trash-shell-v2";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon.svg"])));
@@ -32,8 +32,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // hashed build assets never change: cache first
-  if (url.pathname.startsWith("/assets/")) {
+  // hashed build assets and fonts never change: cache first
+  if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/fonts/")) {
     event.respondWith(
       caches.match(req).then(
         (hit) =>

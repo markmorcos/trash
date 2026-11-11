@@ -1,5 +1,6 @@
 import { BIN_LABELS, addWeeks, assignWeek, binsOf, currentWeek, type Override } from "../shared/rotation";
 import { loadConfig, mutate, sql } from "./db";
+import { now as clockNow } from "./clock";
 import { pushTo } from "./push";
 
 async function overridesFor(week: string): Promise<Override[]> {
@@ -18,7 +19,7 @@ async function claim(week: string, kind: string, person: string): Promise<boolea
 const list = (xs: string[]) => (xs.length > 1 ? xs.slice(0, -1).join(", ") + " and " + xs.at(-1) : xs[0]);
 
 /** Sunday evening: remind everyone whose bin is not ticked yet. */
-export async function remind(now = new Date()) {
+export async function remind(now = clockNow()) {
   const { config } = await loadConfig();
   const week = currentWeek(now, config.timezone);
   const a = assignWeek(config, await overridesFor(week), week);
@@ -44,7 +45,7 @@ export async function remind(now = new Date()) {
 }
 
 /** Monday just after midnight: close last week into history and announce the new one. */
-export async function rollover(now = new Date()) {
+export async function rollover(now = clockNow()) {
   const { config } = await loadConfig();
   const week = currentWeek(now, config.timezone);
   const last = addWeeks(week, -1);

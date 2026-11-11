@@ -5,6 +5,7 @@ import { ClientMessage, type ServerMessage } from "../shared/messages";
 import { currentWeek } from "../shared/rotation";
 import { ActionError, handle } from "./actions";
 import { readSession } from "./auth";
+import { now } from "./clock";
 import { loadConfig, loadState, sql } from "./db";
 
 interface Client {
@@ -20,7 +21,7 @@ const send = (ws: WebSocket, m: ServerMessage) => ws.readyState === WebSocket.OP
 
 async function stateMessage(): Promise<ServerMessage> {
   const { config } = await loadConfig();
-  return { type: "state", state: await loadState(currentWeek(new Date(), config.timezone)) };
+  return { type: "state", state: await loadState(currentWeek(now(), config.timezone)) };
 }
 
 function presence() {

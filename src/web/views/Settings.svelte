@@ -133,7 +133,7 @@
   {/if}
 </section>
 
-<p class="note center">
+<p class="note center" data-testid="conn-info">
   {app.online ? `Live · v${st.version}` : `Offline · v${st.version}`} · {app.presence.length} online · {st.config.timezone}
 </p>
 

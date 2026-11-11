@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { currentWeek } from "../shared/rotation";
 import { checkPasscode, clientIp, rateLimited, readSession, safeEqual, sessionCookie } from "./auth";
+import { isTestMode, now, setNow } from "./clock";
 import { loadConfig, loadState, migrate, sql } from "./db";
 import { remind, rollover } from "./jobs";
 import { pushEnabled, vapidPublicKey } from "./push";
@@ -85,6 +86,12 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     const token = process.env.CRON_TOKEN;
     const auth = req.headers.authorization ?? "";
     if (!token || !safeEqual(auth, `Bearer ${token}`)) return json(res, 401, { error: "unauthorized" });
+    if (m === "POST" && p === "/internal/test/clock" && isTestMode()) {
+      const { now: iso } = z.object({ now: z.string().datetime({ offset: true }) }).parse(await body(req));
+      setNow(iso);
+      void broadcast();
+      return json(res, 200, { now: iso });
+    }
     if (m === "POST" && p === "/internal/remind") return json(res, 200, await remind());
     if (m === "POST" && p === "/internal/rollover") {
       const r = await rollover();
@@ -107,7 +114,7 @@ async function route(req: IncomingMessage, res: ServerResponse) {
       });
     }
     if (m === "POST" && p === "/api/login") {
-      if (rateLimited(clientIp(req))) return json(res, 429, { error: "Too many tries. Wait a minute and try again." });
+      if (!isTestMode() && rateLimited(clientIp(req))) return json(res, 429, { error: "Too many tries. Wait a minute and try again." });
       const { passcode } = Login.parse(await body(req));
       const r = checkPasscode(passcode);
       if (r === "unset") return json(res, 503, { error: "The house passcode isn't set up on the server yet." });
@@ -125,7 +132,7 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     }
     if (m === "GET" && p === "/api/state") {
       const { config } = await loadConfig();
-      return json(res, 200, await loadState(currentWeek(new Date(), config.timezone)));
+      return json(res, 200, await loadState(currentWeek(now(), config.timezone)));
     }
     if (m === "GET" && p === "/api/push/key") return json(res, 200, { key: vapidPublicKey });
     if (!s.p) return json(res, 401, { error: "Pick who you are first." });
