@@ -3,7 +3,7 @@
 // scheduled jobs. Needs TEST_DATABASE_URL pointing at a disposable database.
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { assignWeek, type State } from "../../src/shared/rotation";
+import { assignWeek, lineupNotes, type State } from "../../src/shared/rotation";
 import { resetDb } from "../support/reset-db.mjs";
 import { connect, cron, loginAs, startPod, tryConnect, type Pod, type Sock } from "../support/server";
 
@@ -45,6 +45,14 @@ describe.skipIf(!dbUrl)("server integration", () => {
       const s = (await r.json()) as State;
       expect(s.config.order).toEqual(["lea", "liz", "mark", "ari", "francisco"]);
       expect(names(s)).toEqual(["lea", "liz", "francisco", "ari"]);
+    });
+
+    it("Settings notes from the live state show Mark away and Francisco covering", async () => {
+      const s = (await (await fetch(a.url + "/api/state", { headers: { cookie: lizCookie } })).json()) as State;
+      const notes = lineupNotes(s.config, s.overrides, WEEK);
+      expect(notes.find((n) => n.person === "mark")).toMatchObject({ away: true, coveredBy: "francisco" });
+      expect(notes.find((n) => n.person === "francisco")).toMatchObject({ away: false, actually: ["bio"] });
+      expect(notes.filter((n) => n.away || n.actually).map((n) => n.person).sort()).toEqual(["francisco", "mark"]);
     });
 
     it("seeds only once even with two pods starting", async () => {

@@ -282,3 +282,36 @@ export const DEFAULT_CONFIG: Config = {
   rev: 1,
   since: "2026-11-09",
 };
+
+export interface LineupNote {
+  person: string;
+  /** Slot in the base rotation this week: a bin, or null for a rest week. */
+  baseBin: BinId | null;
+  away: boolean;
+  /** Who takes the base bin instead, when this person is away (null: nobody left). */
+  coveredBy: string | null;
+  /** Bins this person actually takes this week, when that differs from the base. */
+  actually: BinId[] | null;
+}
+
+/**
+ * How this week differs from the base rotation, per person in base order.
+ * Settings edits the base order, so it shows that order plus these notes.
+ */
+export function lineupNotes(config: Config, overrides: Override[], week: string): LineupNote[] {
+  const base = baseLineup(config, week);
+  const actual = assignWeek(config, overrides, week);
+  return base.map((person, i) => {
+    const baseBin = i < BINS.length ? BINS[i] : null;
+    const away = actual.away.includes(person);
+    const mine = binsOf(actual, person);
+    const same = baseBin ? mine.length === 1 && mine[0] === baseBin : mine.length === 0;
+    return {
+      person,
+      baseBin,
+      away,
+      coveredBy: away && baseBin ? actual.bins[i].person : null,
+      actually: away || same ? null : mine,
+    };
+  });
+}
