@@ -5,11 +5,13 @@
   import Upcoming from "./views/Upcoming.svelte";
   import Changes from "./views/Changes.svelte";
   import Settings from "./views/Settings.svelte";
+  import Activity from "./views/Activity.svelte";
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: "week", label: "This week", icon: "▦" },
     { id: "upcoming", label: "Upcoming", icon: "≡" },
     { id: "changes", label: "Changes", icon: "⇄" },
+    { id: "activity", label: "Activity", icon: "☰" },
     { id: "settings", label: "Settings", icon: "⚙" },
   ];
 </script>
@@ -33,6 +35,7 @@
     {#if app.tab === "week"}<Week />
     {:else if app.tab === "upcoming"}<Upcoming />
     {:else if app.tab === "changes"}<Changes />
+    {:else if app.tab === "activity"}<Activity />
     {:else}<Settings />{/if}
   </main>
   <nav class="tabs" aria-label="Sections">
@@ -63,7 +66,7 @@
     right: 0;
     bottom: 0;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     background: var(--paper);
     border-top: 1.5px dashed var(--line);
     padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);

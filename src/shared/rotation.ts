@@ -42,12 +42,14 @@ export interface Override {
   createdBy: string;
 }
 
-export interface Checkoff {
+/** One time someone took a bin out. A bin can go out several times a week. */
+export interface Takeout {
+  /** id of the event that recorded it */
+  id: string;
   week: string;
   bin: BinId;
   person: string;
-  doneBy: string;
-  doneAt: string;
+  at: string;
 }
 
 export interface HistoryRow {
@@ -55,14 +57,19 @@ export interface HistoryRow {
   bin: BinId;
   person: string | null;
   status: "done" | "missed";
+  /** how many times it went out that week */
+  count: number;
 }
 
 export interface State {
+  /** id of the latest event */
   version: number;
   config: Config;
   overrides: Override[];
-  checkoffs: Checkoff[];
+  takeouts: Takeout[];
   history: HistoryRow[];
+  /** most recent events, newest first, for the Activity tab */
+  activity: import("./events").HouseEvent[];
 }
 
 export interface BinAssignment {

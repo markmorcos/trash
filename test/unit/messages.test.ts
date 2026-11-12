@@ -10,7 +10,7 @@ describe("client messages", () => {
     expect(ok({ type: "uncheckoff", week: "2026-11-09", bin: "papier" })).toBe(true);
     expect(ok({ type: "override", week: "2026-11-16", kind: "away" })).toBe(true);
     expect(ok({ type: "override", week: "2026-11-16", kind: "swap", with: "lea" })).toBe(true);
-    expect(ok({ type: "undoOverride", id: "3f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f" })).toBe(true);
+    expect(ok({ type: "undoOverride", id: "42" })).toBe(true);
     expect(ok({ type: "updateConfig", baseRev: 1, lineup: ["a", "b"], names: { lea: "Lea M." } })).toBe(true);
   });
 
@@ -20,6 +20,7 @@ describe("client messages", () => {
     expect(ok({ type: "checkoff", week: "next monday", bin: "wert" })).toBe(false);
     expect(ok({ type: "override", week: "2026-11-16", kind: "forever" })).toBe(false);
     expect(ok({ type: "undoOverride", id: "1; drop table" })).toBe(false);
+    expect(ok({ type: "undoOverride", id: "3f1c2b8e-1d2a-4c3b-9e8f-0a1b2c3d4e5f" })).toBe(false);
     expect(ok({ type: "updateConfig", baseRev: 1, names: { lea: "" } })).toBe(false);
     expect(ok({ type: "updateConfig", baseRev: 1, names: { lea: "x".repeat(31) } })).toBe(false);
   });

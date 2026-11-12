@@ -54,7 +54,7 @@
         <span>{range(h.week)}</span>
         <span class="row">
           {#each h.rows as r (r.bin)}
-            <span class="pill {r.status === 'done' ? 'ok' : 'warn'}">{BIN_LABELS[r.bin]} {r.status === "done" ? "✓" : "missed"}</span>
+            <span class="pill {r.status === 'done' ? 'ok' : 'warn'}">{BIN_LABELS[r.bin]} {r.status === "done" ? (r.count > 1 ? `✓ ×${r.count}` : "✓") : "missed"}</span>
           {/each}
         </span>
       </div>

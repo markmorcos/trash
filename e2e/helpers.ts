@@ -17,3 +17,9 @@ export async function open(page: Page, hash: string, ready: string, at = WED) {
 
 // what other open test pages do must not change a screenshot
 export const masks = (page: Page) => [page.locator(".live"), page.getByTestId("conn-info")];
+
+/** Back to the seed (test mode only), for tests that tap buttons. */
+export async function resetHouse(page: Page) {
+  const r = await page.request.post("/internal/test/reset", { headers: { authorization: "Bearer visual-cron" } });
+  expect(r.ok()).toBe(true);
+}

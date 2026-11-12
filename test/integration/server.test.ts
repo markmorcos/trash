@@ -56,8 +56,21 @@ describe.skipIf(!dbUrl)("server integration", () => {
     });
 
     it("seeds only once even with two pods starting", async () => {
-      const [{ n }] = await sql`select count(*)::int as n from overrides`;
-      expect(n).toBe(1);
+      const rows = await sql`select type, actor from events order by id`;
+      expect(rows.map((r) => r.type)).toEqual(["house.seeded", "away.marked"]);
+      expect(rows[1].actor).toBe("mark");
+    });
+
+    it("the version is the latest event number", async () => {
+      const s = (await (await fetch(a.url + "/api/state", { headers: { cookie: lizCookie } })).json()) as State;
+      const [{ max }] = await sql`select max(id)::int as max from events`;
+      expect(s.version).toBe(max);
+      expect(s.activity.map((e) => e.data.type)).toEqual(["away.marked", "house.seeded"]);
+    });
+
+    it("events can't be changed or deleted", async () => {
+      await expect(sql`update events set actor = 'eve' where id = 1`).rejects.toThrow(/append-only/);
+      await expect(sql`delete from events where id = 1`).rejects.toThrow(/append-only/);
     });
   });
 
@@ -114,8 +127,26 @@ describe.skipIf(!dbUrl)("server integration", () => {
 
     it("a tick on pod A reaches a phone on pod B", async () => {
       liz.send({ type: "checkoff", week: WEEK, bin: "wert" });
-      const m = await mark.next("state", (x) => x.state.checkoffs.some((c) => c.bin === "wert"));
-      expect(m.state.checkoffs.find((c) => c.bin === "wert")).toMatchObject({ person: "liz", doneBy: "liz" });
+      const m = await mark.next("state", (x) => x.state.takeouts.some((c) => c.bin === "wert"));
+      expect(m.state.takeouts.find((c) => c.bin === "wert")).toMatchObject({ person: "liz", week: WEEK });
+    });
+
+    it("a bin can go out several times a week, and undo removes only the latest", async () => {
+      liz.send({ type: "checkoff", week: WEEK, bin: "wert" });
+      let m = await mark.next("state", (x) => x.state.takeouts.filter((t) => t.bin === "wert").length === 2);
+      const [first, second] = m.state.takeouts.filter((t) => t.bin === "wert");
+      expect(Number(second.id)).toBeGreaterThan(Number(first.id));
+      liz.send({ type: "uncheckoff", week: WEEK, bin: "wert" });
+      m = await mark.next("state", (x) => x.state.takeouts.filter((t) => t.bin === "wert").length === 1);
+      expect(m.state.takeouts.find((t) => t.bin === "wert")!.id).toBe(first.id);
+      // the log keeps all three
+      const types = (await sql`select type from events where type like 'bin.%' order by id`).map((r) => r.type);
+      expect(types).toEqual(["bin.taken_out", "bin.taken_out", "bin.take_out_undone"]);
+    });
+
+    it("refuses undoing a take-out you didn't make", async () => {
+      mark.send({ type: "uncheckoff", week: WEEK, bin: "wert" });
+      expect((await mark.next("error")).code).toBe("not_found");
     });
 
     it("refuses ticking someone else's bin", async () => {
@@ -169,7 +200,7 @@ describe.skipIf(!dbUrl)("server integration", () => {
     });
 
     it("undo removes the change for everyone", async () => {
-      const [row] = await sql`select id from overrides where kind = 'swap'`;
+      const [row] = await sql`select id::text as id from events where type = 'swap.made'`;
       liz.send({ type: "undoOverride", id: row.id });
       const m = await mark.next("state", (x) => !x.state.overrides.some((o) => o.kind === "swap"));
       expect(names(m.state, "2026-11-30")).toEqual(["mark", "ari", "francisco", "lea"]);
@@ -223,14 +254,36 @@ describe.skipIf(!dbUrl)("server integration", () => {
       expect(r.week).toBe("2026-11-16");
       expect(r.missed.sort()).toEqual(["bio", "papier", "rest"]);
       const m = await mark.next("state", (x) => x.state.history.length > 0);
-      expect(m.state.history.find((h) => h.bin === "wert")).toMatchObject({ status: "done", person: "liz" });
+      expect(m.state.history.find((h) => h.bin === "wert")).toMatchObject({ status: "done", person: "liz", count: 1 });
+      expect(m.state.activity[0].data.type).toBe("week.closed");
       expect(names(m.state, "2026-11-16")).toEqual(["francisco", "lea", "liz", "mark"]);
+    });
+
+    it("past event #9, events still replay and list in number order (not text order)", async () => {
+      const s = (await (await fetch(a.url + "/api/state", { headers: { cookie: lizCookie } })).json()) as State;
+      const [{ max }] = await sql`select max(id)::int as max from events`;
+      expect(max).toBeGreaterThan(10);
+      expect(s.version).toBe(max);
+      const ids = s.activity.map((e) => Number(e.id));
+      expect(ids[0]).toBe(max);
+      expect(ids).toEqual([...ids].sort((x, y) => y - x));
+      // a fresh pod replaying everything from scratch reaches the same version and history
+      const fresh = await startPod();
+      try {
+        const cookie = await loginAs(fresh, "liz");
+        const t = (await (await fetch(fresh.url + "/api/state", { headers: { cookie } })).json()) as State;
+        expect(t.version).toBe(max);
+        expect(t.history).toEqual(s.history);
+        expect(t.overrides).toEqual(s.overrides);
+      } finally {
+        await fresh.stop();
+      }
     });
 
     it("rollover is safe to run twice", async () => {
       await cron(a, "/internal/rollover");
-      const [{ n }] = await sql`select count(*)::int as n from week_history`;
-      expect(n).toBe(4);
+      const [{ n }] = await sql`select count(*)::int as n from events where type = 'week.closed'`;
+      expect(n).toBe(1);
     });
   });
 
@@ -259,11 +312,11 @@ describe.skipIf(!dbUrl)("server integration", () => {
     it("a phone reconnects to the other pod and catches up", async () => {
       mark.close();
       liz.send({ type: "checkoff", week: "2026-11-16", bin: "bio" });
-      await liz.next("state", (x) => x.state.checkoffs.some((c) => c.week === "2026-11-16"));
+      await liz.next("state", (x) => x.state.takeouts.some((c) => c.week === "2026-11-16"));
       mark = await connect(a, markCookie);
       mark.send({ type: "hello", lastVersion: 0 });
       const m = await mark.next("state");
-      expect(m.state.checkoffs.some((c) => c.week === "2026-11-16" && c.bin === "bio")).toBe(true);
+      expect(m.state.takeouts.some((c) => c.week === "2026-11-16" && c.bin === "bio")).toBe(true);
     });
   });
 });
