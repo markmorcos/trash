@@ -61,6 +61,11 @@ describe.skipIf(!dbUrl)("importing the old tables into events", () => {
     ]);
   });
 
+  it("writes the whole import in a single transaction", async () => {
+    const [{ n }] = await sql`select count(distinct xmin::text)::int as n from events`;
+    expect(n).toBe(1);
+  });
+
   it("rebuilds the same house the old tables described", async () => {
     const cookie = await loginAs(pod, "mark");
     const s = (await (await fetch(pod.url + "/api/state", { headers: { cookie } })).json()) as State;

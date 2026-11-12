@@ -72,7 +72,8 @@ export async function migrate() {
     if (n === 0) {
       const imported = await importLegacy(c);
       if (imported) console.log(`imported ${imported} events from the old tables`);
-      else await seed(c);
+      // one transaction: a crash can't leave a half-seeded log that later starts would skip
+      else await sql.begin((tx) => seed(tx));
     }
   } finally {
     await c`select pg_advisory_unlock(${MIGRATE_LOCK})`.catch(() => {});

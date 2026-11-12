@@ -61,6 +61,12 @@ describe.skipIf(!dbUrl)("server integration", () => {
       expect(rows[1].actor).toBe("mark");
     });
 
+    it("writes the seed in a single transaction", async () => {
+      // every row inserted by one transaction shares its xmin
+      const [{ n }] = await sql`select count(distinct xmin::text)::int as n from events`;
+      expect(n).toBe(1);
+    });
+
     it("the version is the latest event number", async () => {
       const s = (await (await fetch(a.url + "/api/state", { headers: { cookie: lizCookie } })).json()) as State;
       const [{ max }] = await sql`select max(id)::int as max from events`;
