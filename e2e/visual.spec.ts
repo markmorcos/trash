@@ -2,25 +2,8 @@
 // The server's clock is pinned to Wed 11 Nov 2026 (week of 9 Nov: Mark away,
 // Francisco covering Biomüll); the browser clock is pinned per test.
 // None of these tests change data, so they can run in any order.
-import { expect, test, type Page } from "@playwright/test";
-
-const WED = new Date("2026-11-11T12:00:00+01:00");
-const SUN = new Date("2026-11-15T17:00:00+01:00");
-
-async function signIn(page: Page, person: string) {
-  expect((await page.request.post("/api/me", { data: { person } })).ok()).toBe(true);
-}
-
-async function open(page: Page, hash: string, ready: string, at = WED) {
-  await page.clock.setFixedTime(at);
-  await page.goto("/#" + hash);
-  await expect(page.getByRole("heading", { name: ready })).toBeVisible();
-  await expect(page.locator(".offline")).toHaveCount(0);
-  await page.evaluate(() => document.fonts.ready);
-}
-
-// what other open test pages do must not change a screenshot
-const masks = (page: Page) => [page.locator(".live"), page.getByTestId("conn-info")];
+import { expect, test } from "@playwright/test";
+import { SUN, WED, masks, open, signIn } from "./helpers";
 
 test.describe("joining", () => {
   test("a new device picks a name, no passcode", async ({ page }) => {

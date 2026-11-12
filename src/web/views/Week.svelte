@@ -2,6 +2,8 @@
   import { BIN_LABELS, assignWeek, addWeeks, isoWeekNumber, nextRestWeek, weekday } from "../../shared/rotation";
   import { app, nameOf, person, send, thisWeek, today } from "../lib/app.svelte";
   import { BIN_COLORS, DOW, day, list, range } from "../lib/format";
+  import { install } from "../lib/install.svelte";
+  import InstallCard from "./InstallCard.svelte";
 
   const st = $derived(app.state!);
   const week = $derived(thisWeek());
@@ -90,6 +92,10 @@
   {/if}
   {#if nextRest}Next break: week of {day(nextRest)}.{/if}
 </div>
+
+{#if !install.installed && !install.hintDismissed}
+  <InstallCard compact />
+{/if}
 
 <style>
   header { display: flex; flex-direction: column; gap: 2px; }
