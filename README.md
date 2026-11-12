@@ -19,6 +19,12 @@ There is no passcode or account: whoever has the link picks their name, and the 
 
 The logic is in `src/shared/rotation.ts`. The browser and the server use the same code, and `test/rotation.test.ts` covers it.
 
+## Events
+
+Every change is an event with who, when and what: `bin.taken_out` (as often as a bin fills up), `bin.take_out_undone`, `away.marked`, `swap.made`, `change.undone`, `rotation.set`, `people.renamed` and `week.closed` (the Monday rollover). Undo is a new event, never a delete. The **Activity** tab shows the log in plain sentences.
+
+On first start against a database from before event sourcing, the server imports the old `config`, `overrides`, `checkoffs` and `week_history` rows as events, with their original times and people, and leaves those tables untouched.
+
 ## Stack
 
 | Part | What |
@@ -26,7 +32,7 @@ The logic is in `src/shared/rotation.ts`. The browser and the server use the sam
 | Frontend | Svelte 5 + Vite, static build, installable PWA (`public/manifest.webmanifest`, `public/sw.js`) |
 | Server | Node 22 `http` + `ws`, one process on port 8080 (`src/server`) |
 | Live sync | every change runs in one Postgres transaction that bumps a version and `NOTIFY rota_changed`; every pod `LISTEN`s and pushes the full state to its sockets |
-| Data | Postgres; the server creates its tables on startup (`src/server/db.ts`) and seeds the fridge state on first run |
+| Data | **Event-sourced** Postgres: an append-only `events` table (a trigger refuses UPDATE/DELETE) is the only record of what happened; the current state is rebuilt by replaying it (`src/shared/events.ts`). The version shown in the app is the latest event number |
 | Push | Web Push with VAPID keys (`web-push`), no Firebase account |
 | Schedules | chart `crons[]`: Sunday 18:00 reminder, Monday 00:05 rollover |
 

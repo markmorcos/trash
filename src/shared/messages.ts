@@ -6,7 +6,9 @@ const personId = z.string().min(1).max(40);
 
 export const ClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello"), lastVersion: z.number().int().nonnegative().optional() }),
+  /** "I took it out" — can be sent several times a week */
   z.object({ type: z.literal("checkoff"), week: date, bin: z.enum(BINS) }),
+  /** undoes my latest take-out of this bin this week */
   z.object({ type: z.literal("uncheckoff"), week: date, bin: z.enum(BINS) }),
   z.object({
     type: z.literal("override"),
@@ -14,7 +16,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     kind: z.enum(["away", "swap"]),
     with: personId.optional(),
   }),
-  z.object({ type: z.literal("undoOverride"), id: z.string().uuid() }),
+  /** id of the away.marked / swap.made event to undo */
+  z.object({ type: z.literal("undoOverride"), id: z.string().regex(/^\d{1,18}$/) }),
   z.object({
     type: z.literal("updateConfig"),
     baseRev: z.number().int(),

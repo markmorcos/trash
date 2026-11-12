@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { BIN_LABELS, assignWeek, addWeeks, isoWeekNumber, nextRestWeek, weekday } from "../../shared/rotation";
-  import { app, nameOf, person, send, thisWeek, today } from "../lib/app.svelte";
+  import { takeoutsFor } from "../../shared/events";
+  import { BIN_LABELS, assignWeek, addWeeks, isoWeekNumber, localDate, nextRestWeek, weekday } from "../../shared/rotation";
+  import { app, nameOf, person, send, thisWeek, today, tz } from "../lib/app.svelte";
   import { BIN_COLORS, DOW, day, list, range } from "../lib/format";
   import { install } from "../lib/install.svelte";
   import InstallCard from "./InstallCard.svelte";
@@ -8,10 +9,12 @@
   const st = $derived(app.state!);
   const week = $derived(thisWeek());
   const a = $derived(assignWeek(st.config, st.overrides, week));
-  const done = $derived(new Map(st.checkoffs.filter((c) => c.week === week).map((c) => [c.bin, c])));
+  // every time a bin went out this week (a bin can fill up more than once)
+  const outs = (bin: (typeof a.bins)[number]["bin"]) => takeoutsFor(st.takeouts, week, bin);
+  const dayOf = (iso: string) => DOW[weekday(localDate(new Date(iso), tz()))];
   const dow = $derived(weekday(today()));
   const sunday = $derived(dow === 6);
-  const outCount = $derived(a.bins.filter((b) => done.has(b.bin)).length);
+  const outCount = $derived(a.bins.filter((b) => outs(b.bin).length > 0).length);
   const myBins = $derived(a.bins.filter((b) => b.person === app.me).map((b) => BIN_LABELS[b.bin]));
   const nextRest = $derived(app.me ? nextRestWeek(st.config, st.overrides, addWeeks(week, a.resting.includes(app.me) ? 1 : 0), app.me) : null);
   const iAmAway = $derived(app.me ? a.away.includes(app.me) : false);
@@ -33,7 +36,8 @@
 <div class="bins">
   {#each a.bins as b (b.bin)}
     {@const p = person(b.person)}
-    {@const c = done.get(b.bin)}
+    {@const times = outs(b.bin)}
+    {@const last = times[times.length - 1]}
     {@const mine = b.person === app.me}
     <article class="bin" class:me={mine}>
       <h2 class="bin-h" class:dark-ink={b.bin === "wert"} style:background={BIN_COLORS[b.bin]}>{BIN_LABELS[b.bin]}</h2>
@@ -46,16 +50,21 @@
         {#if b.covering}<span class="note">covering for {nameOf(b.covering)}</span>{/if}
         {#if !b.person}
           <span class="pill warn">Unassigned</span>
-        {:else if c}
-          <span class="pill ok">Out ✓ {DOW[weekday(c.doneAt.slice(0, 10))]}</span>
+        {:else if last}
+          <span class="pill ok" data-testid="out-{b.bin}">
+            {times.length > 1 ? `Out ×${times.length} · last ${dayOf(last.at)}` : `Out ✓ ${dayOf(last.at)}`}
+          </span>
         {:else if sunday}
           <span class="pill warn">Due today</span>
         {:else}
           <span class="pill pend">Pending</span>
         {/if}
         {#if mine}
-          {#if c}
-            <button class="btn sm ghost" onclick={() => send({ type: "uncheckoff", week, bin: b.bin })}>Undo</button>
+          {#if last}
+            <span class="row acts">
+              <button class="btn sm" onclick={() => send({ type: "checkoff", week, bin: b.bin })}>Took it out again</button>
+              <button class="btn sm ghost" aria-label="Undo the last {BIN_LABELS[b.bin]} take-out" onclick={() => send({ type: "uncheckoff", week, bin: b.bin })}>Undo</button>
+            </span>
           {:else}
             <button class="btn sm pri" onclick={() => send({ type: "checkoff", week, bin: b.bin })}>I took it out</button>
           {/if}
@@ -116,6 +125,7 @@
   .bin-b { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; flex: 1; }
   .who { display: flex; align-items: center; gap: 6px; font-weight: 600; }
   .who .m { font-size: 1.4rem; }
+  .acts { gap: 6px; }
   .live { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
   .rest { grid-column: 1 / -1; border-style: dashed; flex-direction: row; box-shadow: none; }
   .rest .bin-h { display: flex; align-items: center; min-width: 110px; }

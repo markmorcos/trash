@@ -2,7 +2,7 @@ import type { ClientMessage, ServerMessage } from "../../shared/messages";
 import { currentWeek, localDate, type Person, type State } from "../../shared/rotation";
 
 type Status = "loading" | "who" | "ready";
-export type Tab = "week" | "upcoming" | "changes" | "settings";
+export type Tab = "week" | "upcoming" | "changes" | "activity" | "settings";
 
 const CACHE = "trash:state";
 
@@ -44,7 +44,7 @@ export function toast(title: string, body = "", kind: "info" | "error" = "info")
 }
 
 // ---------- tabs via the URL hash ----------
-const TABS: Tab[] = ["week", "upcoming", "changes", "settings"];
+const TABS: Tab[] = ["week", "upcoming", "changes", "activity", "settings"];
 function readHash() {
   const h = location.hash.slice(1) as Tab;
   app.tab = TABS.includes(h) ? h : "week";

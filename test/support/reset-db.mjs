@@ -6,7 +6,8 @@ export async function resetDb(url = process.env.TEST_DATABASE_URL) {
   if (!url) throw new Error("TEST_DATABASE_URL is not set");
   if (!/test|localhost|127\.0\.0\.1/.test(url)) throw new Error(`refusing to reset a non-test database: ${url}`);
   const sql = postgres(url, { max: 1, onnotice: () => {} });
-  await sql`drop table if exists config, overrides, checkoffs, week_history, push_subscriptions, notifications_sent cascade`;
+  await sql`drop table if exists events, config, overrides, checkoffs, week_history, push_subscriptions, notifications_sent cascade`;
+  await sql`drop function if exists events_append_only() cascade`;
   await sql.end();
 }
 

@@ -1,13 +1,8 @@
-import { BIN_LABELS, addWeeks, assignWeek, binsOf, currentWeek, type Override } from "../shared/rotation";
-import { loadConfig, mutate, sql } from "./db";
+import { takeoutsFor } from "../shared/events";
+import { BIN_LABELS, addWeeks, assignWeek, binsOf, currentWeek } from "../shared/rotation";
 import { now as clockNow } from "./clock";
+import { append, loadHouse, sql } from "./db";
 import { pushTo } from "./push";
-
-async function overridesFor(week: string): Promise<Override[]> {
-  const rows = await sql`select id, to_char(week, 'YYYY-MM-DD') as week, kind, person, other, created_by
-    from overrides where week = ${week} order by created_at`;
-  return rows.map((r) => ({ id: r.id, week: r.week, kind: r.kind, person: r.person, other: r.other, createdBy: r.created_by }));
-}
 
 /** Claim a notification slot; false if it was already sent (makes jobs safe to re-run). */
 async function claim(week: string, kind: string, person: string): Promise<boolean> {
@@ -18,15 +13,16 @@ async function claim(week: string, kind: string, person: string): Promise<boolea
 
 const list = (xs: string[]) => (xs.length > 1 ? xs.slice(0, -1).join(", ") + " and " + xs.at(-1) : xs[0]);
 
-/** Sunday evening: remind everyone whose bin is not ticked yet. */
+/** Sunday evening: remind everyone with a bin that hasn't gone out at all this week. */
 export async function remind(now = clockNow()) {
-  const { config } = await loadConfig();
+  const h = await loadHouse();
+  const config = h.config!;
   const week = currentWeek(now, config.timezone);
-  const a = assignWeek(config, await overridesFor(week), week);
-  const done = new Set((await sql`select bin from checkoffs where week = ${week}`).map((r) => r.bin));
+  const a = assignWeek(config, h.overrides, week);
   const pending = new Map<string, string[]>();
   for (const b of a.bins) {
-    if (b.person && !done.has(b.bin)) pending.set(b.person, [...(pending.get(b.person) ?? []), BIN_LABELS[b.bin]]);
+    if (b.person && takeoutsFor(h.takeouts, week, b.bin).length === 0)
+      pending.set(b.person, [...(pending.get(b.person) ?? []), BIN_LABELS[b.bin]]);
   }
   const result: Record<string, number | "already sent"> = {};
   for (const [person, bins] of pending) {
@@ -44,24 +40,36 @@ export async function remind(now = clockNow()) {
   return { week, pending: Object.fromEntries(pending), sent: result };
 }
 
-/** Monday just after midnight: close last week into history and announce the new one. */
+/**
+ * Monday just after midnight: close last week with a `week.closed` event (once;
+ * re-runs add nothing) and announce the new week.
+ */
 export async function rollover(now = clockNow()) {
-  const { config } = await loadConfig();
+  const config = (await loadHouse()).config!;
   const week = currentWeek(now, config.timezone);
   const last = addWeeks(week, -1);
-  const a = assignWeek(config, await overridesFor(last), last);
-  const done = new Set((await sql`select bin from checkoffs where week = ${last}`).map((r) => r.bin));
   const tracked = !config.since || last >= config.since;
-  if (tracked) await mutate(async (tx) => {
-    for (const b of a.bins) {
-      await tx`insert into week_history (week, bin, person, status)
-        values (${last}, ${b.bin}, ${b.person}, ${done.has(b.bin) ? "done" : "missed"})
-        on conflict (week, bin) do nothing`;
+  let missed: string[] = [];
+  if (tracked) {
+    await append(null, (h) => {
+      if (h.closed.has(last)) return [];
+      const a = assignWeek(h.config!, h.overrides, last);
+      const bins = a.bins.map((b) => {
+        const count = takeoutsFor(h.takeouts, last, b.bin).length;
+        return { bin: b.bin, person: b.person, status: count > 0 ? ("done" as const) : ("missed" as const), count };
+      });
+      missed = bins.filter((b) => b.status === "missed").map((b) => b.bin);
+      return [{ type: "week.closed", week: last, bins }];
+    });
+    if (!missed.length) {
+      const closed = (await loadHouse()).history.filter((r) => r.week === last);
+      missed = closed.filter((r) => r.status === "missed").map((r) => r.bin);
     }
-  });
-  const next = assignWeek(config, await overridesFor(week), week);
+  }
+  const h = await loadHouse();
+  const next = assignWeek(h.config!, h.overrides, week);
   const sent: Record<string, number | "already sent"> = {};
-  for (const p of config.people) {
+  for (const p of h.config!.people) {
     if (next.away.includes(p.id)) continue;
     if (!(await claim(week, "newweek", p.id))) {
       sent[p.id] = "already sent";
@@ -75,6 +83,5 @@ export async function rollover(now = clockNow()) {
       url: "/#week",
     });
   }
-  const missed = tracked ? a.bins.filter((b) => !done.has(b.bin)).map((b) => b.bin) : [];
   return { closed: last, missed, week, sent };
 }

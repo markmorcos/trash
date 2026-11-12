@@ -7,7 +7,7 @@ import { z } from "zod";
 import { currentWeek } from "../shared/rotation";
 import { readSession, safeEqual, sessionCookie } from "./auth";
 import { isTestMode, now, setNow } from "./clock";
-import { loadConfig, loadState, migrate, sql } from "./db";
+import { loadConfig, loadState, migrate, resetForTests, sql } from "./db";
 import { remind, rollover } from "./jobs";
 import { pushEnabled, vapidPublicKey } from "./push";
 import { attach, broadcast, closeAll, listening } from "./ws";
@@ -90,6 +90,11 @@ async function route(req: IncomingMessage, res: ServerResponse) {
       setNow(iso);
       void broadcast();
       return json(res, 200, { now: iso });
+    }
+    if (m === "POST" && p === "/internal/test/reset" && isTestMode()) {
+      await resetForTests();
+      void broadcast();
+      return json(res, 200, { ok: true });
     }
     if (m === "POST" && p === "/internal/remind") return json(res, 200, await remind());
     if (m === "POST" && p === "/internal/rollover") {

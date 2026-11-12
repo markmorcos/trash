@@ -1,16 +1,9 @@
+import type { House } from "../shared/events";
+import { takeoutsFor } from "../shared/events";
 import type { ClientMessage, ErrorCode } from "../shared/messages";
-import {
-  BIN_LABELS,
-  assignWeek,
-  binsOf,
-  currentWeek,
-  validateOverride,
-  type BinId,
-  type Config,
-  type Override,
-} from "../shared/rotation";
-import { loadConfig, mutate, sql } from "./db";
+import { BIN_LABELS, assignWeek, binsOf, currentWeek, validateOverride, type BinId, type Config } from "../shared/rotation";
 import { now as clockNow } from "./clock";
+import { append, loadConfig, loadHouse } from "./db";
 import { pushTo } from "./push";
 
 export class ActionError extends Error {
@@ -23,12 +16,6 @@ const nameOf = (c: Config, id: string | null) => c.people.find((p) => p.id === i
 const fmt = (week: string) =>
   new Date(week + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
-async function weekOverrides(week: string): Promise<Override[]> {
-  const rows = await sql`select id, to_char(week, 'YYYY-MM-DD') as week, kind, person, other, created_by
-    from overrides where week = ${week} order by created_at`;
-  return rows.map((r) => ({ id: r.id, week: r.week, kind: r.kind, person: r.person, other: r.other, createdBy: r.created_by }));
-}
-
 const OVERRIDE_MESSAGES: Record<string, string> = {
   unknown_person: "That person isn't in the house list.",
   already_away: "You're already marked away that week.",
@@ -38,93 +25,123 @@ const OVERRIDE_MESSAGES: Record<string, string> = {
   already_swapped: "One of you already has a swap that week. Undo it first.",
 };
 
-/** Apply one client intent for `me`. Throws ActionError on a rule violation. */
+const cfg = (h: House) => {
+  if (!h.config) throw new ActionError("server_error", "The house isn't set up yet.");
+  return h.config;
+};
+
+/** Apply one client intent for `me` by appending events. Throws ActionError on a rule violation. */
 export async function handle(msg: ClientMessage, me: string): Promise<void> {
-  const { config } = await loadConfig();
-  const now = currentWeek(clockNow(), config.timezone);
+  const tz = (await loadConfig()).config.timezone;
+  const now = currentWeek(clockNow(), tz);
 
   switch (msg.type) {
     case "hello":
       return;
 
     case "checkoff": {
-      if (msg.week !== now) throw new ActionError("not_allowed", "You can only tick bins for this week.");
-      const a = assignWeek(config, await weekOverrides(now), now);
-      if (!binsOf(a, me).includes(msg.bin))
-        throw new ActionError("not_allowed", `${BIN_LABELS[msg.bin]} isn't yours this week.`);
-      await mutate((tx) => tx`insert into checkoffs (week, bin, person, done_by)
-        values (${now}, ${msg.bin}, ${me}, ${me}) on conflict (week, bin) do nothing`);
+      // Allowed as often as needed: bins can fill up more than once a week.
+      await append(me, (h) => {
+        if (msg.week !== now) throw new ActionError("not_allowed", "You can only tick bins for this week.");
+        const a = assignWeek(cfg(h), h.overrides, now);
+        if (!binsOf(a, me).includes(msg.bin)) throw new ActionError("not_allowed", `${BIN_LABELS[msg.bin]} isn't yours this week.`);
+        return [{ type: "bin.taken_out", week: now, bin: msg.bin, person: me }];
+      });
       return;
     }
 
     case "uncheckoff": {
-      if (msg.week !== now) throw new ActionError("not_allowed", "Past weeks are closed.");
-      const removed = await mutate((tx) => tx`delete from checkoffs
-        where week = ${now} and bin = ${msg.bin} and (person = ${me} or done_by = ${me}) returning bin`);
-      if (!removed.length) throw new ActionError("not_found", "Nothing to undo.");
+      await append(me, (h) => {
+        if (msg.week !== now) throw new ActionError("not_allowed", "Past weeks are closed.");
+        const mine = takeoutsFor(h.takeouts, now, msg.bin).filter((t) => t.person === me);
+        const last = mine[mine.length - 1];
+        if (!last) throw new ActionError("not_found", "Nothing to undo.");
+        return [{ type: "bin.take_out_undone", takeoutId: last.id }];
+      });
       return;
     }
 
     case "override": {
-      if (msg.week < now) throw new ActionError("not_allowed", "That week is over.");
-      const existing = await weekOverrides(msg.week);
-      const err = validateOverride(config, existing, msg.week, msg.kind, me, msg.with ?? null);
-      if (err) throw new ActionError(err, OVERRIDE_MESSAGES[err]);
-      const before = assignWeek(config, existing, msg.week);
-      await mutate((tx) => tx`insert into overrides (week, kind, person, other, created_by)
-        values (${msg.week}, ${msg.kind}, ${me}, ${msg.with ?? null}, ${me})`);
-      const after = assignWeek(config, await weekOverrides(msg.week), msg.week);
-      const when = msg.week === now ? "this week" : `the week of ${fmt(msg.week)}`;
-      if (msg.kind === "away") {
-        for (const b of after.bins) {
-          if (b.covering === me && b.person && !binsOf(before, b.person).includes(b.bin)) {
-            await pushTo(b.person, {
-              title: "You're covering",
-              body: `${nameOf(config, me)} is away ${when}. You have ${BIN_LABELS[b.bin]} too.`,
-              tag: `cover-${msg.week}-${b.bin}`,
-              url: "/#week",
-            });
-          }
-        }
-      } else if (msg.with) {
-        const mine = binsOf(after, msg.with).map((b) => BIN_LABELS[b]).join(" and ") || "a rest week";
-        await pushTo(msg.with, {
-          title: "Swap",
-          body: `${nameOf(config, me)} swapped with you for ${when}. You now have ${mine}.`,
-          tag: `swap-${msg.week}`,
-          url: "/#upcoming",
-        });
-      }
+      let before: ReturnType<typeof assignWeek> | null = null;
+      let config: Config | null = null;
+      await append(me, (h) => {
+        config = cfg(h);
+        if (msg.week < now) throw new ActionError("not_allowed", "That week is over.");
+        const err = validateOverride(config, h.overrides, msg.week, msg.kind, me, msg.with ?? null);
+        if (err) throw new ActionError(err, OVERRIDE_MESSAGES[err]);
+        before = assignWeek(config, h.overrides, msg.week);
+        return msg.kind === "away"
+          ? [{ type: "away.marked", week: msg.week, person: me }]
+          : [{ type: "swap.made", week: msg.week, person: me, other: msg.with! }];
+      });
+      await notifyOverride(msg, me, config!, before!);
       return;
     }
 
     case "undoOverride": {
-      const removed = await mutate((tx) => tx`delete from overrides where id = ${msg.id} and week >= ${now} returning id`);
-      if (!removed.length) throw new ActionError("not_found", "That change is already gone or in the past.");
+      await append(me, (h) => {
+        const o = h.overrides.find((x) => x.id === msg.id);
+        if (!o || o.week < now) throw new ActionError("not_found", "That change is already gone or in the past.");
+        return [{ type: "change.undone", changeId: o.id }];
+      });
       return;
     }
 
     case "updateConfig": {
-      await mutate(async (tx) => {
-        const [row] = await tx`select data from config where id = 1 for update`;
-        const current = row.data as Config;
+      await append(me, (h) => {
+        const current = cfg(h);
         if (current.rev !== msg.baseRev)
           throw new ActionError("stale_config", "Someone changed the settings first. Here is the latest version.");
-        const next: Config = { ...current, rev: current.rev + 1 };
+        const out: ({ type: "rotation.set"; anchorWeek: string; order: string[] } | { type: "people.renamed"; names: Record<string, string> })[] = [];
         if (msg.lineup) {
           const ids = current.people.map((p) => p.id).sort();
           if (msg.lineup.length !== ids.length || [...msg.lineup].sort().join() !== ids.join())
             throw new ActionError("bad_message", "The lineup must list everyone exactly once.");
-          next.anchorWeek = now;
-          next.order = msg.lineup;
+          out.push({ type: "rotation.set", anchorWeek: now, order: msg.lineup });
         }
         if (msg.names) {
-          next.people = current.people.map((p) => (msg.names![p.id] ? { ...p, name: msg.names![p.id] } : p));
+          const changed = Object.fromEntries(
+            Object.entries(msg.names).filter(([id, n]) => current.people.some((p) => p.id === id && p.name !== n)),
+          );
+          if (Object.keys(changed).length) out.push({ type: "people.renamed", names: changed });
         }
-        await tx`update config set data = ${tx.json(next as never)} where id = 1`;
+        return out;
       });
       return;
     }
+  }
+}
+
+/** Tell whoever now covers a bin, or the swap partner. */
+async function notifyOverride(
+  msg: Extract<ClientMessage, { type: "override" }>,
+  me: string,
+  config: Config,
+  before: ReturnType<typeof assignWeek>,
+) {
+  const h = await loadHouse();
+  const after = assignWeek(config, h.overrides, msg.week);
+  const now = currentWeek(clockNow(), config.timezone);
+  const when = msg.week === now ? "this week" : `the week of ${fmt(msg.week)}`;
+  if (msg.kind === "away") {
+    for (const b of after.bins) {
+      if (b.covering === me && b.person && !binsOf(before, b.person).includes(b.bin)) {
+        await pushTo(b.person, {
+          title: "You're covering",
+          body: `${nameOf(config, me)} is away ${when}. You have ${BIN_LABELS[b.bin]} too.`,
+          tag: `cover-${msg.week}-${b.bin}`,
+          url: "/#week",
+        });
+      }
+    }
+  } else if (msg.with) {
+    const theirs = binsOf(after, msg.with).map((b) => BIN_LABELS[b]).join(" and ") || "a rest week";
+    await pushTo(msg.with, {
+      title: "Swap",
+      body: `${nameOf(config, me)} swapped with you for ${when}. You now have ${theirs}.`,
+      tag: `swap-${msg.week}`,
+      url: "/#upcoming",
+    });
   }
 }
 
