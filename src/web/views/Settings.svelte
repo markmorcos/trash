@@ -1,7 +1,9 @@
 <script lang="ts">
   import { BIN_LABELS, BINS, baseLineup, lineupNotes, type LineupNote } from "../../shared/rotation";
   import { app, nameOf, person, send, switchPerson, thisWeek, toast } from "../lib/app.svelte";
+  import { install } from "../lib/install.svelte";
   import { isSubscribed, pushSupport, subscribe, unsubscribe } from "../lib/push";
+  import InstallCard from "./InstallCard.svelte";
 
   const st = $derived(app.state!);
   const support = pushSupport();
@@ -87,10 +89,7 @@
   {#if !app.pushEnabled}
     <p class="note">Reminders aren't set up on the server yet.</p>
   {:else if support === "ios-install"}
-    <div class="banner calm">
-      To get reminders on iPhone, open this page in Safari, tap <b>Share → Add to Home Screen</b>, then open Trash from your
-      home screen and come back here.
-    </div>
+    <div class="banner calm">On iPhone, reminders need the Home Screen app. Add it with the steps below, open Trash from your Home Screen, then turn reminders on here.</div>
   {:else if support === "unsupported"}
     <p class="note">This browser can't show notifications. Try Chrome, Firefox or Safari.</p>
   {:else if support === "denied"}
@@ -102,6 +101,10 @@
     </div>
   {/if}
 </section>
+
+{#if !install.installed}
+  <InstallCard />
+{/if}
 
 <section class="card">
   <span class="lbl">This week's rotation</span>

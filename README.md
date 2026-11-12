@@ -6,6 +6,8 @@ Live at https://trash.morcos.tech
 
 There is no passcode or account: whoever has the link picks their name, and the device remembers it for 90 days.
 
+**Installing:** the app is a PWA (manifest, icons, service worker, HTTPS), so every browser that can install web apps already offers it. The app also shows an **Install the app** card, in Settings and as a one-time tip on This week, with steps for the device it's running on: iPhone Share → Add to Home Screen, Android menus, Mac Safari File → Add to Dock, a real Install button on Chrome/Edge, and "open in your browser" inside Instagram or Facebook. The card hides once the app runs installed. Detection and the steps live in `src/web/lib/platform.ts`.
+
 ## How the rotation works
 
 - Weeks run Monday 00:00 to Sunday 23:59, Europe/Berlin.
