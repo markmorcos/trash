@@ -126,6 +126,10 @@ test.describe("settings", () => {
     await signIn(page, "mark");
     await open(page, "settings", "Settings");
     await expect(page.getByRole("switch", { name: "Reminders" })).toBeVisible();
+    // this week's exceptions are noted on the base rotation
+    await expect(page.getByTestId("note-mark")).toHaveText("away · Francisco covers");
+    await expect(page.getByTestId("note-francisco")).toHaveText("this week: Biomüll");
+    await expect(page.locator("[data-testid^=note-]")).toHaveCount(2);
     await expect(page).toHaveScreenshot("settings.png", { fullPage: true, mask: masks(page) });
   });
 
@@ -134,6 +138,8 @@ test.describe("settings", () => {
     await open(page, "settings", "Settings");
     await page.getByRole("button", { name: "Move Liz up" }).click();
     await expect(page.getByText("This changes the rotation for everyone")).toBeVisible();
+    // notes describe the current order, so they hide while a new order is being drafted
+    await expect(page.locator("[data-testid^=note-]")).toHaveCount(0);
     await expect(page).toHaveScreenshot("settings-reorder.png", { fullPage: true, mask: masks(page) });
   });
 

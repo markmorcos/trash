@@ -5,6 +5,7 @@ import {
   baseLineup,
   currentWeek,
   isoWeekNumber,
+  lineupNotes,
   nextRestWeek,
   validateOverride,
   type Override,
@@ -127,5 +128,39 @@ describe("validation", () => {
   });
   it("accepts a normal swap", () => {
     expect(validateOverride(C, [], "2026-11-09", "swap", "lea", "ari")).toBeNull();
+  });
+});
+
+describe("this week's notes on the base rotation", () => {
+  const note = (notes: ReturnType<typeof lineupNotes>, p: string) => notes.find((n) => n.person === p)!;
+
+  it("plain week: no notes", () => {
+    const n = lineupNotes(C, [], "2026-11-16");
+    expect(n.map((x) => x.person)).toEqual(["francisco", "lea", "liz", "mark", "ari"]);
+    expect(n.every((x) => !x.away && x.actually === null && x.coveredBy === null)).toBe(true);
+  });
+
+  it("Mark away on 9 Nov: Mark away, Francisco covers, Francisco is noted as covering Biomüll", () => {
+    const n = lineupNotes(C, [ov({})], "2026-11-09");
+    expect(note(n, "mark")).toMatchObject({ baseBin: "bio", away: true, coveredBy: "francisco", actually: null });
+    expect(note(n, "francisco")).toMatchObject({ baseBin: null, away: false, actually: ["bio"] });
+    expect(note(n, "lea")).toMatchObject({ away: false, actually: null });
+  });
+
+  it("two away: one person's note lists both bins", () => {
+    const n = lineupNotes(C, [ov({}), ov({ person: "liz" })], "2026-11-09");
+    expect(note(n, "liz")).toMatchObject({ away: true, coveredBy: "francisco" });
+    expect(note(n, "francisco").actually).toEqual(["wert", "bio"]);
+  });
+
+  it("swap: both people are noted with what they actually take", () => {
+    const n = lineupNotes(C, [ov({ kind: "swap", person: "lea", other: "francisco" })], "2026-11-09");
+    expect(note(n, "lea")).toMatchObject({ baseBin: "rest", actually: [] });
+    expect(note(n, "francisco")).toMatchObject({ baseBin: null, actually: ["rest"] });
+  });
+
+  it("everyone away: away people's bins show nobody covering", () => {
+    const n = lineupNotes(C, C.order.map((p) => ov({ person: p })), "2026-11-09");
+    expect(n.filter((x) => x.baseBin).every((x) => x.away && x.coveredBy === null)).toBe(true);
   });
 });

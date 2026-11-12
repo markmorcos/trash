@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BIN_LABELS, BINS, baseLineup } from "../../shared/rotation";
+  import { BIN_LABELS, BINS, baseLineup, lineupNotes, type LineupNote } from "../../shared/rotation";
   import { app, nameOf, person, send, switchPerson, thisWeek, toast } from "../lib/app.svelte";
   import { isSubscribed, pushSupport, subscribe, unsubscribe } from "../lib/push";
 
@@ -34,6 +34,16 @@
   // this week's base lineup (before swaps/away), editable
   let lineup = $state<string[] | null>(null);
   const shown = $derived(lineup ?? baseLineup(st.config, thisWeek()));
+  // this week's away weeks and swaps, shown on top of the base order (hidden while reordering)
+  const notes = $derived(new Map(lineupNotes(st.config, st.overrides, thisWeek()).map((n) => [n.person, n])));
+  const binList = (bins: string[]) =>
+    bins.length ? bins.map((b) => BIN_LABELS[b as keyof typeof BIN_LABELS]).join(" + ") : "on break";
+  function noteText(n: LineupNote | undefined): string | null {
+    if (!n) return null;
+    if (n.away) return n.baseBin ? `away · ${n.coveredBy ? nameOf(n.coveredBy) + " covers" : "nobody covers"}` : "away";
+    if (n.actually) return `this week: ${binList(n.actually)}`;
+    return null;
+  }
   function move(i: number, d: -1 | 1) {
     const l = [...shown];
     [l[i], l[i + d]] = [l[i + d], l[i]];
@@ -95,10 +105,17 @@
 
 <section class="card">
   <span class="lbl">This week's rotation</span>
-  <p class="note">Everyone moves one bin to the right each Monday. Reorder to fix the rotation from this week on.</p>
+  <p class="note">
+    Everyone moves one bin to the right each Monday. Reorder to fix the rotation from this week on. Away weeks and swaps
+    only change one week, so they're noted here but keep their place.
+  </p>
   {#each shown as id, i (id)}
-    <div class="item">
-      <span><span class="slot">{i < BINS.length ? BIN_LABELS[BINS[i]] : "On break"}</span> {person(id)?.emoji} {nameOf(id)}</span>
+    {@const n = lineup ? null : noteText(notes.get(id))}
+    <div class="item" class:away={!lineup && notes.get(id)?.away}>
+      <span class="who-col">
+        <span><span class="slot">{i < BINS.length ? BIN_LABELS[BINS[i]] : "On break"}</span> {person(id)?.emoji} <span class="nm">{nameOf(id)}</span></span>
+        {#if n}<span class="pill {notes.get(id)?.away ? 'warn' : 'mute'} ov" data-testid="note-{id}">{n}</span>{/if}
+      </span>
       <span class="row">
         <button class="btn sm ghost" aria-label="Move {nameOf(id)} up" disabled={i === 0} onclick={() => move(i, -1)}>↑</button>
         <button class="btn sm ghost" aria-label="Move {nameOf(id)} down" disabled={i === shown.length - 1} onclick={() => move(i, 1)}>↓</button>
@@ -142,6 +159,9 @@
   .item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
   .item:last-of-type { border-bottom: 0; }
   .slot { display: inline-block; min-width: 84px; font-size: 0.75rem; color: var(--ink-2); font-weight: 700; }
+  .who-col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .ov { margin-left: 84px; align-self: flex-start; }
+  .item.away .nm { text-decoration: line-through; color: var(--ink-2); }
   input {
     font: inherit;
     flex: 1;
