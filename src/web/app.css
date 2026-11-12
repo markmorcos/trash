@@ -1,0 +1,117 @@
+/* Fridge steel background, paper cards, hand-lettered headings like the fridge board. */
+/* Fonts are self-hosted (latin subset, SIL OFL) so the app works offline. */
+@font-face {
+  font-family: "Patrick Hand";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/patrick-hand-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/public-sans-latin.woff2") format("woff2");
+}
+:root {
+  --bg: #d5d9dd;
+  --bg-2: #c8cdd2;
+  --paper: #fbf9f4;
+  --paper-2: #f0ece2;
+  --ink: #1d2328;
+  --ink-2: #55606a;
+  --line: #b9b3a6;
+  --accent: #1f5f6b;
+  --accent-ink: #ffffff;
+  --rest: #3b3f43;
+  --wert: #d9ae00;
+  --bio: #7b5430;
+  --papier: #2f6fb5;
+  --break: #8b7fae;
+  --ok: #2f7d4f;
+  --ok-bg: #dcefe2;
+  --warn: #b5371f;
+  --warn-bg: #f8dfd8;
+  --pend: #8a6a12;
+  --pend-bg: #f6ecc9;
+  --font-hand: "Patrick Hand", "Comic Sans MS", "Segoe Print", cursive;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.06), 0 6px 18px rgba(20, 30, 40, 0.12);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181b1e;
+    --bg-2: #202428;
+    --paper: #272b30;
+    --paper-2: #30353b;
+    --ink: #ebe8e1;
+    --ink-2: #a4acb3;
+    --line: #454b52;
+    --accent: #5fb3c1;
+    --accent-ink: #0f2226;
+    --rest: #8a9096;
+    --wert: #e8c23a;
+    --bio: #b4865a;
+    --papier: #6aa2e0;
+    --break: #ab9fd0;
+    --ok: #7fcf9c;
+    --ok-bg: #1f3a2a;
+    --warn: #f08a72;
+    --warn-bg: #46231c;
+    --pend: #e8c766;
+    --pend-bg: #3d3418;
+    --shadow: 0 1px 0 rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: linear-gradient(180deg, var(--bg), var(--bg-2)) fixed;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+h1, h2, h3 { font-family: var(--font-hand); font-weight: 400; margin: 0; line-height: 1.1; text-wrap: balance; }
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+
+.btn {
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.sm { font-size: 0.8rem; padding: 5px 10px; border-radius: 8px; }
+.btn.ghost { border-color: var(--line); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.pill { display: inline-block; font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 1px 9px; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.pend { background: var(--pend-bg); color: var(--pend); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.mute { background: var(--paper-2); color: var(--ink-2); }
+
+.card { background: var(--paper); border: 1.5px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.lbl { font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); font-weight: 700; }
+.note { font-size: 0.78rem; color: var(--ink-2); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.banner { border: 1.5px dashed var(--warn); background: var(--warn-bg); color: var(--warn); border-radius: 12px; padding: 10px 12px; font-size: 0.88rem; font-weight: 600; }
+.banner.calm { border-color: var(--line); background: var(--paper); color: var(--ink-2); font-weight: 500; }
+.title { font-size: 2rem; }
+.sub { font-size: 0.85rem; color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
