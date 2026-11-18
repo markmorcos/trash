@@ -27,7 +27,10 @@ export type EventData =
   | { type: "rotation.set"; anchorWeek: string; order: string[] }
   | { type: "people.renamed"; names: Record<string, string> }
   /** Written by the Monday rollover: how last week went, bin by bin. */
-  | { type: "week.closed"; week: string; bins: { bin: BinId; person: string | null; status: "done" | "missed"; count: number }[] };
+  | { type: "week.closed"; week: string; bins: { bin: BinId; person: string | null; status: "done" | "missed"; count: number }[] }
+  /** Post rota updates into this WhatsApp group (chosen in Settings). */
+  | { type: "whatsapp.group_set"; jid: string; name: string }
+  | { type: "whatsapp.turned_off" };
 
 export type EventType = EventData["type"];
 
@@ -50,9 +53,25 @@ export interface House {
   history: HistoryRow[];
   /** weeks already closed by a rollover */
   closed: Set<string>;
+  /** where WhatsApp posts go; null until a group is chosen */
+  whatsapp: WhatsAppTarget | null;
 }
 
-export const emptyHouse = (): House => ({ version: 0, config: null, overrides: [], takeouts: [], history: [], closed: new Set() });
+export interface WhatsAppTarget {
+  jid: string;
+  name: string;
+  enabled: boolean;
+}
+
+export const emptyHouse = (): House => ({
+  version: 0,
+  config: null,
+  overrides: [],
+  takeouts: [],
+  history: [],
+  closed: new Set(),
+  whatsapp: null,
+});
 
 /**
  * Apply one event. Mutates and returns `h`. Events at or below the current
@@ -98,6 +117,12 @@ export function apply(h: House, e: HouseEvent): House {
       h.closed.add(d.week);
       h.history.push(...d.bins.map((b) => ({ week: d.week, ...b })));
       break;
+    case "whatsapp.group_set":
+      h.whatsapp = { jid: d.jid, name: d.name, enabled: true };
+      break;
+    case "whatsapp.turned_off":
+      if (h.whatsapp) h.whatsapp = { ...h.whatsapp, enabled: false };
+      break;
   }
   return h;
 }
@@ -122,6 +147,7 @@ export function toState(h: House, week: string, recent: HouseEvent[]): State {
       .filter((r) => r.week >= from)
       .sort((a, b) => (a.week === b.week ? BINS.indexOf(a.bin) - BINS.indexOf(b.bin) : a.week < b.week ? 1 : -1)),
     activity: recent,
+    whatsapp: h.whatsapp,
   };
 }
 
@@ -164,6 +190,10 @@ export function describe(e: HouseEvent, config: Config | null, byId: Map<string,
     case "people.renamed":
       // names are only known as they are now, so say what they became
       return `${who} changed names to ${Object.values(d.names).join(", ")}`;
+    case "whatsapp.group_set":
+      return `${who} set WhatsApp posts to go to “${d.name}”`;
+    case "whatsapp.turned_off":
+      return `${who} turned WhatsApp posts off`;
     case "week.closed": {
       const missed = d.bins.filter((b) => b.status === "missed").map((b) => BIN_LABELS[b.bin]);
       return missed.length ? `Week of ${fmtWeek(d.week)} closed · missed ${missed.join(", ")}` : `Week of ${fmtWeek(d.week)} closed · every bin went out`;

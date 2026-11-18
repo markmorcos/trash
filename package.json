@@ -16,9 +16,12 @@
     "test:integration": "vitest run test/integration",
     "test:visual": "npm run build && playwright test",
     "test:visual:update": "npm run build && playwright test --update-snapshots",
-    "test:all": "npm run check && vitest run && npm run test:visual"
+    "test:all": "npm run check && vitest run && npm run test:visual",
+    "build:bridge": "esbuild whatsapp/index.ts --bundle --platform=node --target=node22 --format=esm --packages=external --outfile=dist/whatsapp.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "9.14.0",
     "postgres": "^4.1.1",
     "web-push": "^4.0.0",
     "ws": "^8.22.2",

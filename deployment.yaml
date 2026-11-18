@@ -22,6 +22,8 @@ services:
       - name: DATABASE_URL
         valueFrom:
           secretKeyRef: { name: database-secrets, key: DATABASE_URL }
+      - name: WA_BRIDGE_URL
+        value: http://trash-whatsapp-service.trash.svc.cluster.local:8081
       # app-secrets is created once by the infrastructure repo's bootstrap-trash workflow.
       # optional: the app starts without it (push stays off until it exists).
       - name: SESSION_SECRET
@@ -47,6 +49,32 @@ services:
         # WebSockets stay open for a long time; the server pings every 25 s
         nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
         nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+
+  # WhatsApp bridge: a linked device (like WhatsApp Web) that posts queued rota
+  # updates into the flat group. Post only. One copy at a time (Postgres lock);
+  # its login lives in the database, so it needs no volume and can run on any node.
+  - name: whatsapp
+    image: ghcr.io/markmorcos/trash-whatsapp
+    context: .
+    dockerfile: whatsapp/Dockerfile
+    port: 8081
+    resources:
+      requests: { cpu: 20m, memory: 96Mi }
+      limits: { memory: 384Mi }
+    readinessProbe:
+      httpGet: { path: /healthz, port: 8081 }
+      periodSeconds: 10
+    livenessProbe:
+      httpGet: { path: /healthz, port: 8081 }
+      initialDelaySeconds: 20
+      periodSeconds: 30
+    env:
+      - name: DATABASE_URL
+        valueFrom:
+          secretKeyRef: { name: database-secrets, key: DATABASE_URL }
+      - name: CRON_TOKEN
+        valueFrom:
+          secretKeyRef: { name: app-secrets, key: CRON_TOKEN }
 
 # Both jobs are idempotent, so a retry or a manual re-run never double-sends.
 crons:

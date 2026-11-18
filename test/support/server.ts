@@ -11,7 +11,7 @@ export const TEST_ENV = {
   TRASH_FAKE_NOW: "2026-11-11T12:00:00+01:00",
 };
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   return new Promise((resolve) => {
     const s = createServer().listen(0, () => {
       const port = (s.address() as { port: number }).port;
@@ -142,3 +142,72 @@ export const cron = (pod: Pod, path: string, body?: unknown) =>
     headers: { authorization: `Bearer ${TEST_ENV.CRON_TOKEN}` },
     body: body ? JSON.stringify(body) : undefined,
   });
+
+export interface Bridge extends Pod {
+  port: number;
+  /** call the bridge's own API (bearer CRON_TOKEN) */
+  call: <T = unknown>(path: string, body?: unknown) => Promise<{ status: number; body: T }>;
+}
+
+/** Start the WhatsApp bridge with its fake transport (no network). */
+export async function startBridge(port?: number, extraEnv: Record<string, string> = {}): Promise<Bridge> {
+  port ??= await freePort();
+  const logs: string[] = [];
+  const child = spawn(process.execPath, ["--import", "tsx", "whatsapp/index.ts"], {
+    env: {
+      ...process.env,
+      DATABASE_URL: process.env.TEST_DATABASE_URL!,
+      PORT: String(port),
+      CRON_TOKEN: TEST_ENV.CRON_TOKEN,
+      TRASH_TEST_MODE: "1",
+      WA_FAKE: "1",
+      WA_SEND_GAP_MS: "20",
+      ...extraEnv,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout!.on("data", (d) => logs.push(String(d)));
+  child.stderr!.on("data", (d) => logs.push(String(d)));
+  const url = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    if (child.exitCode !== null) throw new Error("bridge exited:\n" + logs.join(""));
+    try {
+      if ((await fetch(url + "/healthz")).ok) break;
+    } catch {
+      /* not up yet */
+    }
+    if (Date.now() > deadline) throw new Error("bridge didn't start:\n" + logs.join(""));
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return {
+    url,
+    port,
+    logs,
+    call: async (path, body) => {
+      const r = await fetch(url + path, {
+        method: body === undefined && !path.startsWith("/fake/complete") && path !== "/drain" ? "GET" : "POST",
+        headers: { authorization: `Bearer ${TEST_ENV.CRON_TOKEN}` },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    },
+    stop: () =>
+      new Promise((resolve) => {
+        if (child.exitCode !== null) return resolve();
+        child.once("exit", () => resolve());
+        child.kill("SIGTERM");
+      }),
+  };
+}
+
+/** Poll until `fn` returns a truthy value. */
+export async function until<T>(fn: () => Promise<T>, what: string, timeoutMs = 8000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}

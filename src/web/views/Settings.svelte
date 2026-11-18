@@ -4,6 +4,7 @@
   import { install } from "../lib/install.svelte";
   import { isSubscribed, pushSupport, subscribe, unsubscribe } from "../lib/push";
   import InstallCard from "./InstallCard.svelte";
+  import WhatsAppCard from "./WhatsAppCard.svelte";
 
   const st = $derived(app.state!);
   const support = pushSupport();
@@ -133,6 +134,8 @@
     </div>
   {/if}
 </section>
+
+<WhatsAppCard />
 
 <section class="card">
   <span class="lbl">Names</span>

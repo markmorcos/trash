@@ -1,7 +1,8 @@
 import { takeoutsFor } from "../shared/events";
 import { BIN_LABELS, addWeeks, assignWeek, binsOf, currentWeek } from "../shared/rotation";
 import { now as clockNow } from "./clock";
-import { append, loadHouse, sql } from "./db";
+import { append, loadHouse, queuePost, sql } from "./db";
+import { mondayRota, sundayReminder } from "../shared/whatsapp";
 import { pushTo } from "./push";
 
 /** Claim a notification slot; false if it was already sent (makes jobs safe to re-run). */
@@ -37,7 +38,9 @@ export async function remind(now = clockNow()) {
       url: "/#week",
     });
   }
-  return { week, pending: Object.fromEntries(pending), sent: result };
+  // the flat's WhatsApp group: once per week, and only while posting is on
+  const whatsapp = h.whatsapp?.enabled && (await claim(week, "wa-remind", "*")) ? await queuePost(sql, sundayReminder(h, week), h) : false;
+  return { week, pending: Object.fromEntries(pending), sent: result, whatsapp };
 }
 
 /**
@@ -83,5 +86,6 @@ export async function rollover(now = clockNow()) {
       url: "/#week",
     });
   }
-  return { closed: last, missed, week, sent };
+  const whatsapp = h.whatsapp?.enabled && (await claim(week, "wa-newweek", "*")) ? await queuePost(sql, mondayRota(h, week), h) : false;
+  return { closed: last, missed, week, sent, whatsapp };
 }
