@@ -69,10 +69,37 @@ describe.skipIf(!dbUrl)("WhatsApp group posts", () => {
       expect(r.body.error).toMatch(/country code/);
     });
 
+    it("a code stops showing after 3 minutes, with a message to get a new one", async () => {
+      await api("/api/whatsapp/link", { phone: "+49 170 1234567" });
+      expect((await api("/api/whatsapp")).body.state).toBe("pairing");
+      await bridge.call("/fake/advance", { ms: 3 * 60_000 + 1000 });
+      expect((await api("/api/whatsapp")).body).toMatchObject({
+        state: "unlinked",
+        code: null,
+        error: "That code expired or didn't work. Get a new one.",
+      });
+    });
+
+    it("a dropped connection kills the code and shows why, without secrets", async () => {
+      await api("/api/whatsapp/link", { phone: "+49 170 1234567" });
+      await bridge.call("/fake/close-socket", { code: 405 });
+      const st = (await api("/api/whatsapp")).body;
+      expect(st).toMatchObject({ state: "unlinked", code: null, error: "That code expired or didn't work. Get a new one." });
+      expect(st.lastProblem).toMatchObject({ code: 405, reason: "rejected by WhatsApp (often an outdated client version) (405)" });
+      for (const k of await sql`select key from wa_auth`) expect(JSON.stringify(st)).not.toContain(k.key);
+    });
+
+    it("asking again replaces the code", async () => {
+      const first = (await api("/api/whatsapp/link", { phone: "+49 170 1234567" })).body.code;
+      const second = (await api("/api/whatsapp/link", { phone: "+49 170 1234567" })).body.code;
+      expect(second).not.toBe(first);
+      expect((await api("/api/whatsapp")).body).toMatchObject({ state: "pairing", code: second });
+    });
+
     it("hands out a link code, then shows the linked number masked", async () => {
       const r = await api("/api/whatsapp/link", { phone: "+49 170 1234567" });
-      expect(r.body.code).toBe("TRSH4CD9");
-      expect((await api("/api/whatsapp")).body).toMatchObject({ state: "pairing", code: "TRSH4CD9" });
+      expect(r.body.code).toMatch(/^[A-Z0-9]{8}$/);
+      expect((await api("/api/whatsapp")).body).toMatchObject({ state: "pairing", code: r.body.code });
       await bridge.call("/fake/complete-link");
       const st = (await api("/api/whatsapp")).body;
       expect(st).toMatchObject({ state: "linked", me: "+49 ••• ••• 567", code: null });

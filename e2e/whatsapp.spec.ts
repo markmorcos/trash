@@ -1,7 +1,7 @@
 // The WhatsApp group card in Settings, through every state, against the bridge's
 // fake connection. These tests tap buttons, so each starts from the seed.
 import { expect, test, type Page } from "@playwright/test";
-import { completeWhatsAppLink, open, resetHouse, signIn } from "./helpers";
+import { BRIDGE, completeWhatsAppLink, open, resetHouse, signIn } from "./helpers";
 
 test.beforeEach(async ({ page }) => resetHouse(page));
 test.afterAll(async ({ browser }) => {
@@ -38,6 +38,19 @@ test("link code with the steps to enter it", async ({ page }) => {
   await expect(page.getByTestId("wa-code")).toHaveText("TRSH-4CD9");
   await expect(card(page)).toContainText("Link with phone number instead");
   await shot(page, "whatsapp-code.png");
+});
+
+test("a code that expired says so and offers a new one", async ({ page }) => {
+  await openSettings(page);
+  await card(page).getByLabel("Your WhatsApp number").fill("+49 170 1234567");
+  await card(page).getByRole("button", { name: "Get link code" }).click();
+  await expect(page.getByTestId("wa-code")).toHaveText("TRSH-4CD9");
+  await expect(card(page).getByRole("button", { name: "Get a new code" })).toBeEnabled();
+  // WhatsApp closes the connection that asked for the code
+  expect((await page.request.post(BRIDGE + "/fake/close-socket", { headers: { authorization: "Bearer visual-cron" }, data: { code: 405 } })).ok()).toBe(true);
+  await expect(page.getByTestId("wa-error")).toHaveText("That code expired or didn't work. Get a new one.", { timeout: 10_000 });
+  await expect(page.getByTestId("wa-problem")).toHaveText("Last connection problem: rejected by WhatsApp (often an outdated client version) (405)");
+  await shot(page, "whatsapp-expired.png");
 });
 
 test("linked: pick the group, then it posts there", async ({ page }) => {

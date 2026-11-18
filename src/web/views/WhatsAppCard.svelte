@@ -7,6 +7,7 @@
     me: string | null;
     code: string | null;
     error: string | null;
+    lastProblem: { code: number | null; reason: string; at: string } | null;
     groups: { id: string; name: string }[];
     target: { jid: string; name: string; enabled: boolean } | null;
     outbox: { pending: number; lastSentAt: string | null; lastError: string | null };
@@ -71,7 +72,7 @@
   {:else if st.state === "unlinked"}
     <p>Post the rota to the flat's WhatsApp group: every take-out, away weeks and swaps, the Sunday reminder and Monday's new week.</p>
     <p class="note">Posts are sent from one person's WhatsApp, linked like WhatsApp Web. Use the number of whoever is setting this up.</p>
-    {#if st.error}<div class="banner">{st.error}</div>{/if}
+    {#if st.error}<div class="banner" data-testid="wa-error">{st.error}</div>{/if}
     <label class="lbl" for="wa-phone">Your WhatsApp number</label>
     <div class="row">
       <input id="wa-phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+49 170 1234567" bind:value={phone} />
@@ -87,7 +88,15 @@
       <li>Tap <b>Link with phone number instead</b></li>
       <li>Type the code above</li>
     </ol>
-    <p class="note">Waiting for your phone… This card updates by itself.</p>
+    <p class="note">Waiting for your phone… The code works for 3 minutes. This card updates by itself.</p>
+    <div class="row">
+      {#if !phone}
+        <input id="wa-phone-again" type="tel" inputmode="tel" aria-label="Your WhatsApp number" placeholder="+49 170 1234567" bind:value={phone} />
+      {/if}
+      <button class="btn ghost" disabled={busy || phone.replace(/\D/g, "").length < 8} onclick={() => act("/api/whatsapp/link", { phone })}>
+        Get a new code
+      </button>
+    </div>
   {:else}
     <div class="row between">
       <span>Linked as <b>{st.me}</b></span>
@@ -129,6 +138,9 @@
       </div>
     {/if}
   {/if}
+  {#if st?.lastProblem && st.state !== "linked"}
+    <p class="note problem" data-testid="wa-problem">Last connection problem: {st.lastProblem.reason}</p>
+  {/if}
 </section>
 
 <style>
@@ -159,4 +171,5 @@
   .target { display: flex; flex-direction: column; gap: 2px; }
   .groups { display: flex; flex-direction: column; gap: 6px; }
   .group { text-align: left; }
+  .problem { font-size: 0.75rem; }
 </style>
