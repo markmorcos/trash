@@ -93,6 +93,9 @@ describe.skipIf(!dbUrl)("WhatsApp group posts", () => {
       const first = (await api("/api/whatsapp/link", { phone: "+49 170 1234567" })).body.code;
       const second = (await api("/api/whatsapp/link", { phone: "+49 170 1234567" })).body.code;
       expect(second).not.toBe(first);
+      // the second code comes from a fresh session, never from the first attempt's keys
+      const info = (await bridge.call<{ sessions: number }>("/fake/info")).body;
+      expect(info.sessions).toBeGreaterThan(1);
       expect((await api("/api/whatsapp")).body).toMatchObject({ state: "pairing", code: second });
     });
 

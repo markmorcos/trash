@@ -33,3 +33,11 @@ const REASONS: Record<number, string> = {
 };
 export const describeDisconnect = (code: number | undefined) =>
   code === undefined ? "unknown reason" : `${REASONS[code] ?? "unexpected error"} (${code})`;
+
+/**
+ * Requesting a code writes `creds.me`. Reusing those credentials for another code makes
+ * WhatsApp answer 401, so a new code needs a fresh session unless this one is untouched.
+ */
+export function needsFreshSession(creds: { me?: unknown; registered?: boolean }): boolean {
+  return !!creds.me && !creds.registered;
+}

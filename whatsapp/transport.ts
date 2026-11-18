@@ -4,7 +4,7 @@ import makeWASocket, { Browsers, DEFAULT_CONNECTION_CONFIG, DisconnectReason, fe
 import pino from "pino";
 import type postgres from "postgres";
 import { usePostgresAuthState } from "./auth-store";
-import { CODE_EXPIRED, chooseVersion, codeExpired, describeDisconnect, type WaVersion } from "./pairing";
+import { CODE_EXPIRED, chooseVersion, codeExpired, describeDisconnect, needsFreshSession, type WaVersion } from "./pairing";
 
 export type LinkState = "starting" | "unlinked" | "pairing" | "linked";
 
@@ -105,6 +105,9 @@ export class BaileysTransport extends PairingTracker implements Transport {
   private linkedHandlers: (() => void)[] = [];
   private stopping = false;
   private auth!: Awaited<ReturnType<typeof usePostgresAuthState>>;
+  /** resolves once the current connection is ready to ask for a link code */
+  private ready: Promise<void> = Promise.resolve();
+  private markReady: () => void = () => {};
 
   constructor(private sql: postgres.Sql) {
     super();
@@ -120,6 +123,7 @@ export class BaileysTransport extends PairingTracker implements Transport {
   }
 
   private async connect() {
+    this.ready = new Promise((r) => (this.markReady = r));
     const { version } = await waVersion();
     const sock = makeWASocket({
       version,
@@ -141,7 +145,11 @@ export class BaileysTransport extends PairingTracker implements Transport {
         console.log("whatsapp: linked");
         this.linkedHandlers.forEach((f) => f());
       }
-      if (u.qr && this.st.state === "starting") this.st = { ...this.st, state: "unlinked" };
+      if (u.qr) {
+        // the server offered pairing: this connection can now request a code
+        this.markReady();
+        if (this.st.state === "starting") this.st = { ...this.st, state: "unlinked" };
+      }
       if (u.connection === "close") {
         if (this.sock !== sock || this.stopping) return;
         const code = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
@@ -161,9 +169,21 @@ export class BaileysTransport extends PairingTracker implements Transport {
   async link(phone: string) {
     if (!this.sock) throw new Error("not started");
     if (this.auth.state.creds.registered) throw new Error("already linked");
-    const code = await this.sock.requestPairingCode(phone);
+    // a code was asked for before: start over with fresh credentials and a new connection
+    if (needsFreshSession(this.auth.state.creds)) await this.freshSession();
+    await Promise.race([this.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("WhatsApp didn't answer. Try again.")), 20_000))]);
+    const code = await this.sock!.requestPairingCode(phone);
     this.issued(code);
     return code;
+  }
+
+  private async freshSession() {
+    const old = this.sock;
+    this.sock = null;
+    old?.end(undefined);
+    await this.auth.clear();
+    this.auth = await usePostgresAuthState(this.sql);
+    await this.connect();
   }
 
   async groups() {
@@ -228,7 +248,12 @@ export class FakeTransport extends PairingTracker implements Transport {
     this.st = r ? { ...this.st, state: "linked", me: r.value, code: null, error: null } : { ...this.st, state: "unlinked", me: null, code: null };
     if (r) this.linkedHandlers.forEach((f) => f());
   }
+  /** how many fresh sessions linking has started (the real one reconnects with new keys) */
+  sessions = 1;
+  private codeAsked = false;
   async link(phone: string) {
+    if (needsFreshSession({ me: this.codeAsked || undefined, registered: false })) this.sessions++;
+    this.codeAsked = true;
     this.issuedCount++;
     const code = this.issuedCount === 1 ? "TRSH4CD9" : `TRSH4CD${this.issuedCount}`.slice(0, 8);
     this.pendingPhone = phone;
@@ -262,6 +287,8 @@ export class FakeTransport extends PairingTracker implements Transport {
     this.st = { state: "unlinked", me: null, code: null, error: null, lastProblem: null };
     this.issuedCount = 0;
     this.skewMs = 0;
+    this.sessions = 1;
+    this.codeAsked = false;
   }
   async stop() {}
 }
