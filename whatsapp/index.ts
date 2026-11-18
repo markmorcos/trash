@@ -163,6 +163,7 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true });
       }
       if (m === "GET" && p === "/fake/sent") return json(res, 200, f.sent);
+      if (m === "GET" && p === "/fake/info") return json(res, 200, { sessions: f.sessions });
       if (m === "POST" && p === "/fake/advance") {
         f.skewMs += Number((await body(req)).ms ?? 0);
         return json(res, 200, { ok: true });
