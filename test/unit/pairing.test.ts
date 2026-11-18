@@ -35,3 +35,26 @@ describe("disconnect reasons", () => {
     expect(describeDisconnect(undefined)).toBe("unknown reason");
   });
 });
+
+import { LogRing, maskDigits, refusedMessage } from "../../whatsapp/pairing";
+
+describe("troubleshooting details", () => {
+  it("mask phone numbers and JIDs down to their last 3 digits", () => {
+    expect(maskDigits("pair 491701234567@s.whatsapp.net ok")).toBe("pair •••567@s.whatsapp.net ok");
+    expect(maskDigits("code 515 at 12:00")).toBe("code 515 at 12:00");
+  });
+  it("keep only the last lines, timestamped and masked", () => {
+    const r = new LogRing(2);
+    r.push("one", new Date("2026-11-18T15:00:01Z"));
+    r.push("two 491701234567", new Date("2026-11-18T15:00:02Z"));
+    r.push("three", new Date("2026-11-18T15:00:03Z"));
+    expect(r.all()).toEqual(["15:00:02 two •••567", "15:00:03 three"]);
+    r.clear();
+    expect(r.all()).toEqual([]);
+  });
+  it("say why WhatsApp refused a code request", () => {
+    expect(refusedMessage(Object.assign(new Error("bad-request"), { data: 400 }))).toBe("WhatsApp refused the code request (400 bad-request)");
+    expect(refusedMessage(new Error("rate-overlimit"))).toBe("WhatsApp refused the code request (rate-overlimit)");
+    expect(refusedMessage({})).toBe("WhatsApp refused the code request (no reason given)");
+  });
+});

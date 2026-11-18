@@ -99,6 +99,18 @@ describe.skipIf(!dbUrl)("WhatsApp group posts", () => {
       expect((await api("/api/whatsapp")).body).toMatchObject({ state: "pairing", code: second });
     });
 
+    it("when WhatsApp refuses the code request, says why instead of showing a dead code", async () => {
+      await bridge.call("/fake/refuse-next-code", {});
+      const r = await api("/api/whatsapp/link", { phone: "+49 170 1234567" });
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe("WhatsApp refused the code request (400 bad-request)");
+      const st = (await api("/api/whatsapp")).body;
+      expect(st).toMatchObject({ state: "unlinked", code: null, error: "WhatsApp refused the code request (400 bad-request)" });
+      expect(st.lastProblem).toMatchObject({ code: 400 });
+      expect(st.log.at(-1)).toMatch(/WhatsApp refused the code request \(400 bad-request\)$/);
+      expect(JSON.stringify(st.log)).not.toContain("491701234567");
+    });
+
     it("hands out a link code, then shows the linked number masked", async () => {
       const r = await api("/api/whatsapp/link", { phone: "+49 170 1234567" });
       expect(r.body.code).toMatch(/^[A-Z0-9]{8}$/);

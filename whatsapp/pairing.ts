@@ -41,3 +41,30 @@ export const describeDisconnect = (code: number | undefined) =>
 export function needsFreshSession(creds: { me?: unknown; registered?: boolean }): boolean {
   return !!creds.me && !creds.registered;
 }
+
+/** Long digit runs (phone numbers, JIDs) shortened to their last 3 digits. */
+export const maskDigits = (line: string) => line.replace(/\d{6,}/g, (d) => `•••${d.slice(-3)}`);
+
+/** The last few library log lines, text only and masked, for the Settings card. */
+export class LogRing {
+  private lines: string[] = [];
+  constructor(private size = 40) {}
+  push(text: string, at = new Date()) {
+    this.lines.push(`${at.toISOString().slice(11, 19)} ${maskDigits(text).slice(0, 200)}`);
+    if (this.lines.length > this.size) this.lines.shift();
+  }
+  all() {
+    return [...this.lines];
+  }
+  clear() {
+    this.lines = [];
+  }
+}
+
+/** What to tell people when WhatsApp refuses to hand out a link code. */
+export function refusedMessage(err: unknown): string {
+  const e = err as { message?: string; data?: unknown; output?: { statusCode?: number } };
+  const code = typeof e?.data === "number" && Number.isFinite(e.data) ? e.data : null;
+  const why = e?.message || "no reason given";
+  return `WhatsApp refused the code request (${code ? `${code} ${why}` : why})`;
+}
