@@ -4,7 +4,7 @@ import makeWASocket, { Browsers, DEFAULT_CONNECTION_CONFIG, DisconnectReason, fe
 import pino from "pino";
 import type postgres from "postgres";
 import { usePostgresAuthState } from "./auth-store";
-import { CODE_EXPIRED, chooseVersion, codeExpired, describeDisconnect, needsFreshSession, type WaVersion } from "./pairing";
+import { CODE_EXPIRED, LogRing, chooseVersion, codeExpired, describeDisconnect, needsFreshSession, refusedMessage, type WaVersion } from "./pairing";
 
 export type LinkState = "starting" | "unlinked" | "pairing" | "linked";
 
@@ -23,6 +23,8 @@ export interface TransportStatus {
   error: string | null;
   /** last time the connection dropped, and why (status code and reason only) */
   lastProblem: Problem | null;
+  /** recent library log lines (text only, numbers masked) */
+  log?: string[];
 }
 
 export interface Group {
@@ -64,21 +66,38 @@ abstract class PairingTracker {
     this.socketClosedAt = this.now();
     this.st = { ...this.st, lastProblem: { code: code ?? null, reason: describeDisconnect(code), at: new Date().toISOString() } };
   }
+  protected refused(err: unknown): never {
+    const reason = refusedMessage(err);
+    const code = (err as { data?: unknown }).data;
+    this.st = {
+      ...this.st,
+      state: "unlinked",
+      code: null,
+      error: reason,
+      lastProblem: { code: typeof code === "number" ? code : null, reason, at: new Date().toISOString() },
+    };
+    ring.push(reason);
+    throw new Error(reason);
+  }
   status(): TransportStatus {
     if (this.st.state === "pairing" && codeExpired(this.issuedAt, this.now(), this.socketClosedAt)) {
       this.st = { ...this.st, state: "unlinked", code: null, error: CODE_EXPIRED };
     }
-    return { ...this.st };
+    return { ...this.st, log: ring.all() };
   }
 }
 
+export const ring = new LogRing();
+
 // Baileys logs objects that can include message data; keep only its short text lines.
+// info and up go to the ring (shown masked on the Settings card); warn and up also to stdout.
 const logger = pino({
-  level: "warn",
+  level: "info",
   hooks: {
-    logMethod(args, method) {
-      const text = args.find((a): a is string => typeof a === "string");
-      method.apply(this, [`whatsapp(baileys): ${text ?? "(details hidden)"}`]);
+    logMethod(args, method, level) {
+      const text = args.find((a): a is string => typeof a === "string") ?? "(details hidden)";
+      ring.push(text);
+      if (level >= 40) method.apply(this, [`whatsapp(baileys): ${text}`]);
     },
   },
 });
@@ -154,6 +173,7 @@ export class BaileysTransport extends PairingTracker implements Transport {
         if (this.sock !== sock || this.stopping) return;
         const code = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
         this.socketClosed(code);
+        ring.push(`connection closed: ${describeDisconnect(code)}`);
         console.log(`whatsapp: connection closed: ${describeDisconnect(code)}`);
         if (code === DisconnectReason.loggedOut) {
           this.st = { ...this.st, state: "unlinked", me: null, code: null, error: "Logged out on the phone. Link again." };
@@ -172,7 +192,12 @@ export class BaileysTransport extends PairingTracker implements Transport {
     // a code was asked for before: start over with fresh credentials and a new connection
     if (needsFreshSession(this.auth.state.creds)) await this.freshSession();
     await Promise.race([this.ready, new Promise((_, rej) => setTimeout(() => rej(new Error("WhatsApp didn't answer. Try again.")), 20_000))]);
-    const code = await this.sock!.requestPairingCode(phone);
+    let code: string;
+    try {
+      code = await this.sock!.requestPairingCode(phone);
+    } catch (e) {
+      this.refused(e);
+    }
     this.issued(code);
     return code;
   }
@@ -251,7 +276,12 @@ export class FakeTransport extends PairingTracker implements Transport {
   /** how many fresh sessions linking has started (the real one reconnects with new keys) */
   sessions = 1;
   private codeAsked = false;
+  refuseNext = false;
   async link(phone: string) {
+    if (this.refuseNext) {
+      this.refuseNext = false;
+      this.refused(Object.assign(new Error("bad-request"), { data: 400 }));
+    }
     if (needsFreshSession({ me: this.codeAsked || undefined, registered: false })) this.sessions++;
     this.codeAsked = true;
     this.issuedCount++;
@@ -289,6 +319,7 @@ export class FakeTransport extends PairingTracker implements Transport {
     this.skewMs = 0;
     this.sessions = 1;
     this.codeAsked = false;
+    this.refuseNext = false;
   }
   async stop() {}
 }

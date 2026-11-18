@@ -53,6 +53,20 @@ test("a code that expired says so and offers a new one", async ({ page }) => {
   await shot(page, "whatsapp-expired.png");
 });
 
+test("a refused code request says why, with details for troubleshooting", async ({ page }) => {
+  await openSettings(page);
+  expect((await page.request.post(BRIDGE + "/fake/refuse-next-code", { headers: { authorization: "Bearer visual-cron" }, data: {} })).ok()).toBe(true);
+  await card(page).getByLabel("Your WhatsApp number").fill("+49 170 1234567");
+  await card(page).getByRole("button", { name: "Get link code" }).click();
+  await expect(page.getByText("WhatsApp refused the code request (400 bad-request)").first()).toBeVisible();
+  await expect(page.getByTestId("wa-error")).toHaveText("WhatsApp refused the code request (400 bad-request)", { timeout: 10_000 });
+  await expect(page.getByTestId("wa-log")).toBeVisible();
+  await expect(page.getByTestId("wa-code")).toHaveCount(0);
+  // the log lines carry times, so the screenshot hides them
+  await card(page).evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await expect(card(page)).toHaveScreenshot("whatsapp-refused.png", { mask: [page.getByTestId("wa-log")] });
+});
+
 test("linked: pick the group, then it posts there", async ({ page }) => {
   await openSettings(page);
   await card(page).getByLabel("Your WhatsApp number").fill("+49 170 1234567");

@@ -14,6 +14,7 @@ interface BridgeStatus {
   code: string | null;
   error: string | null;
   lastProblem: { code: number | null; reason: string; at: string } | null;
+  log?: string[];
   groups: { id: string; name: string }[];
 }
 
@@ -47,6 +48,8 @@ export async function whatsappStatus() {
     code: b?.code ?? null,
     error: b?.error ?? null,
     lastProblem: b?.lastProblem ?? null,
+    // recent bridge log lines (masked) while not linked, for troubleshooting
+    log: b && b.state !== "linked" ? (b.log ?? []) : [],
     groups: b?.groups ?? [],
     target: h.whatsapp,
     outbox: await outboxSummary(),

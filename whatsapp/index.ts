@@ -142,7 +142,11 @@ const server = createServer(async (req, res) => {
       const phone = String((await body(req)).phone ?? "").replace(/\D/g, "");
       if (phone.length < 8 || phone.length > 15) return json(res, 400, { error: "Enter the full number with country code, e.g. +49 170 1234567." });
       if (transport.status().state === "linked") return json(res, 409, { error: "Already linked." });
-      return json(res, 200, { code: await transport.link(phone) });
+      try {
+        return json(res, 200, { code: await transport.link(phone) });
+      } catch (e) {
+        return json(res, 409, { error: (e as Error).message });
+      }
     }
     if (m === "POST" && p === "/unlink") {
       await transport.unlink();
@@ -164,6 +168,10 @@ const server = createServer(async (req, res) => {
       }
       if (m === "GET" && p === "/fake/sent") return json(res, 200, f.sent);
       if (m === "GET" && p === "/fake/info") return json(res, 200, { sessions: f.sessions });
+      if (m === "POST" && p === "/fake/refuse-next-code") {
+        f.refuseNext = true;
+        return json(res, 200, { ok: true });
+      }
       if (m === "POST" && p === "/fake/advance") {
         f.skewMs += Number((await body(req)).ms ?? 0);
         return json(res, 200, { ok: true });

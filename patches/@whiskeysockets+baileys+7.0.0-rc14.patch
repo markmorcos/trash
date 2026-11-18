@@ -26,7 +26,7 @@ index f2003ac..c9f34a7 100644
                  const primaryIdentityPublicKey = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub'));
                  const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_wrapped_primary_ephemeral_pub'));
 diff --git a/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js b/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js
-index ae34a8f..b93f2fe 100644
+index ae34a8f..cba4f08 100644
 --- a/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js
 +++ b/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js
 @@ -6,7 +6,7 @@ import { proto } from '../../WAProto/index.js';
@@ -38,7 +38,18 @@ index ae34a8f..b93f2fe 100644
  import { assertNodeErrorFree, binaryNodeToString, encodeBinaryNode, getAllBinaryNodeChildren, getBinaryNodeChild, getBinaryNodeChildren, isLidUser, jidDecode, jidEncode, S_WHATSAPP_NET } from '../WABinary/index.js';
  import { BinaryInfo } from '../WAM/BinaryInfo.js';
  import { USyncQuery, USyncUser } from '../WAUSync/index.js';
-@@ -690,6 +690,8 @@ export const makeSocket = (config) => {
+@@ -604,7 +604,9 @@ export const makeSocket = (config) => {
+             name: '~'
+         };
+         ev.emit('creds.update', authState.creds);
+-        await sendNode({
++        // trash: wait for WhatsApp's answer (query, not sendNode) so a refused request
++        // throws its error code instead of handing out a code that can never work
++        await query({
+             tag: 'iq',
+             attrs: {
+                 to: S_WHATSAPP_NET,
+@@ -690,6 +692,8 @@ export const makeSocket = (config) => {
      ws.on('close', () => void end(new Boom('Connection Terminated', { statusCode: DisconnectReason.connectionClosed })));
      // the server terminated the connection
      ws.on('CB:xmlstreamend', () => void end(new Boom('Connection Terminated by Server', { statusCode: DisconnectReason.connectionClosed })));
@@ -47,7 +58,7 @@ index ae34a8f..b93f2fe 100644
      // QR gen
      ws.on('CB:iq,type:set,pair-device', async (stanza) => {
          const iq = {
-@@ -705,25 +707,32 @@ export const makeSocket = (config) => {
+@@ -705,25 +709,32 @@ export const makeSocket = (config) => {
          const refNodes = getBinaryNodeChildren(pairDeviceNode, 'ref');
          const noiseKeyB64 = Buffer.from(creds.noiseKey.public).toString('base64');
          const identityKeyB64 = Buffer.from(creds.signedIdentityKey.public).toString('base64');

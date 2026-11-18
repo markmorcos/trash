@@ -8,6 +8,7 @@
     code: string | null;
     error: string | null;
     lastProblem: { code: number | null; reason: string; at: string } | null;
+    log: string[];
     groups: { id: string; name: string }[];
     target: { jid: string; name: string; enabled: boolean } | null;
     outbox: { pending: number; lastSentAt: string | null; lastError: string | null };
@@ -48,6 +49,7 @@
       if (done) toast(done);
     } catch (e) {
       toast("WhatsApp", (e as Error).message, "error");
+      await load(); // show the reason and the details on the card, not only in the toast
     } finally {
       busy = false;
       confirmUnlink = false;
@@ -141,6 +143,12 @@
   {#if st?.lastProblem && st.state !== "linked"}
     <p class="note problem" data-testid="wa-problem">Last connection problem: {st.lastProblem.reason}</p>
   {/if}
+  {#if st?.log?.length && st.state !== "linked"}
+    <details class="log" data-testid="wa-log">
+      <summary class="note">Details for troubleshooting</summary>
+      <pre>{st.log.join("\n")}</pre>
+    </details>
+  {/if}
 </section>
 
 <style>
@@ -172,4 +180,5 @@
   .groups { display: flex; flex-direction: column; gap: 6px; }
   .group { text-align: left; }
   .problem { font-size: 0.75rem; }
+  .log pre { margin: 6px 0 0; font-size: 0.7rem; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto; background: var(--paper-2); border-radius: 8px; padding: 8px; }
 </style>

@@ -23,6 +23,13 @@ describe("patched Baileys", () => {
     expect(src).not.toContain("buildAckStanza(node, errorCode, authState.creds.me.id)");
   });
 
+  it("waits for WhatsApp's answer when requesting a link code", () => {
+    const src = readFileSync(join(lib, "Socket/socket.js"), "utf8");
+    const fn = src.slice(src.indexOf("const requestPairingCode = async"), src.indexOf("async function generatePairingKey"));
+    expect(fn).toContain("await query({");
+    expect(fn).not.toContain("await sendNode({");
+  });
+
   it("listens for companion_reg_refresh (#2765)", () => {
     expect(readFileSync(join(lib, "Socket/socket.js"), "utf8")).toContain("'CB:notification,type:companion_reg_refresh'");
   });
