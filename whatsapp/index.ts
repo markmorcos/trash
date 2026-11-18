@@ -163,6 +163,14 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { ok: true });
       }
       if (m === "GET" && p === "/fake/sent") return json(res, 200, f.sent);
+      if (m === "POST" && p === "/fake/advance") {
+        f.skewMs += Number((await body(req)).ms ?? 0);
+        return json(res, 200, { ok: true });
+      }
+      if (m === "POST" && p === "/fake/close-socket") {
+        f.closeSocket(Number((await body(req)).code ?? 428));
+        return json(res, 200, { ok: true });
+      }
       if (m === "POST" && p === "/fake/reset") {
         await f.unlink();
         f.sent = [];

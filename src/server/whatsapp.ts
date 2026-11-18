@@ -13,6 +13,7 @@ interface BridgeStatus {
   me: string | null;
   code: string | null;
   error: string | null;
+  lastProblem: { code: number | null; reason: string; at: string } | null;
   groups: { id: string; name: string }[];
 }
 
@@ -45,6 +46,7 @@ export async function whatsappStatus() {
     me: maskNumber(b?.me ?? null),
     code: b?.code ?? null,
     error: b?.error ?? null,
+    lastProblem: b?.lastProblem ?? null,
     groups: b?.groups ?? [],
     target: h.whatsapp,
     outbox: await outboxSummary(),

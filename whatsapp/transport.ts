@@ -1,11 +1,18 @@
 // The WhatsApp connection: the real one (Baileys, a linked device like WhatsApp Web)
 // and a fake one that integration and screenshot tests drive over HTTP.
-import makeWASocket, { Browsers, DisconnectReason, type WASocket } from "@whiskeysockets/baileys";
+import makeWASocket, { Browsers, DEFAULT_CONNECTION_CONFIG, DisconnectReason, fetchLatestWaWebVersion, type WASocket } from "@whiskeysockets/baileys";
 import pino from "pino";
 import type postgres from "postgres";
 import { usePostgresAuthState } from "./auth-store";
+import { CODE_EXPIRED, chooseVersion, codeExpired, describeDisconnect, type WaVersion } from "./pairing";
 
 export type LinkState = "starting" | "unlinked" | "pairing" | "linked";
+
+export interface Problem {
+  code: number | null;
+  reason: string;
+  at: string;
+}
 
 export interface TransportStatus {
   state: LinkState;
@@ -14,6 +21,8 @@ export interface TransportStatus {
   /** pairing code while linking */
   code: string | null;
   error: string | null;
+  /** last time the connection dropped, and why (status code and reason only) */
+  lastProblem: Problem | null;
 }
 
 export interface Group {
@@ -24,7 +33,7 @@ export interface Group {
 export interface Transport {
   status(): TransportStatus;
   start(): Promise<void>;
-  /** Ask WhatsApp for a link code for this number (digits, with country code). */
+  /** Ask WhatsApp for a link code for this number (digits, with country code). Replaces an earlier code. */
   link(phone: string): Promise<string>;
   groups(): Promise<Group[]>;
   send(jid: string, text: string): Promise<void>;
@@ -35,58 +44,116 @@ export interface Transport {
 
 const digits = (jid: string | undefined | null) => (jid ? jid.split("@")[0].split(":")[0] : null);
 
+/**
+ * Shared pairing bookkeeping: a code is shown only while it can still work, i.e. for
+ * 3 minutes and only while the connection that requested it stays open.
+ */
+abstract class PairingTracker {
+  protected st: TransportStatus = { state: "starting", me: null, code: null, error: null, lastProblem: null };
+  private issuedAt = 0;
+  private socketClosedAt: number | null = null;
+  protected now(): number {
+    return Date.now();
+  }
+  protected issued(code: string) {
+    this.issuedAt = this.now();
+    this.socketClosedAt = null;
+    this.st = { ...this.st, state: "pairing", me: null, code, error: null };
+  }
+  protected socketClosed(code: number | undefined) {
+    this.socketClosedAt = this.now();
+    this.st = { ...this.st, lastProblem: { code: code ?? null, reason: describeDisconnect(code), at: new Date().toISOString() } };
+  }
+  status(): TransportStatus {
+    if (this.st.state === "pairing" && codeExpired(this.issuedAt, this.now(), this.socketClosedAt)) {
+      this.st = { ...this.st, state: "unlinked", code: null, error: CODE_EXPIRED };
+    }
+    return { ...this.st };
+  }
+}
+
+// Baileys logs objects that can include message data; keep only its short text lines.
+const logger = pino({
+  level: "warn",
+  hooks: {
+    logMethod(args, method) {
+      const text = args.find((a): a is string => typeof a === "string");
+      method.apply(this, [`whatsapp(baileys): ${text ?? "(details hidden)"}`]);
+    },
+  },
+});
+
+let cachedVersion: { version: WaVersion; source: "latest" | "bundled"; at: number } | null = null;
+async function waVersion(): Promise<{ version: WaVersion; source: "latest" | "bundled" }> {
+  if (cachedVersion && Date.now() - cachedVersion.at < 6 * 3600_000) return cachedVersion;
+  let fetched: { version: number[] } | null = null;
+  try {
+    fetched = await fetchLatestWaWebVersion({});
+  } catch {
+    fetched = null;
+  }
+  // the bundled default is used only if WhatsApp's version lookup fails
+  const v = chooseVersion(fetched, DEFAULT_CONNECTION_CONFIG.version as WaVersion);
+  cachedVersion = { ...v, at: Date.now() };
+  console.log(`whatsapp: using WhatsApp Web ${v.version.join(".")} (${v.source})`);
+  return v;
+}
+
 /** The real thing. Only sends; incoming messages are never read or stored. */
-export class BaileysTransport implements Transport {
+export class BaileysTransport extends PairingTracker implements Transport {
   private sock: WASocket | null = null;
-  private st: TransportStatus = { state: "starting", me: null, code: null, error: null };
   private linkedHandlers: (() => void)[] = [];
   private stopping = false;
   private auth!: Awaited<ReturnType<typeof usePostgresAuthState>>;
 
-  constructor(private sql: postgres.Sql) {}
-
-  status() {
-    return { ...this.st };
+  constructor(private sql: postgres.Sql) {
+    super();
   }
+
   onLinked(fn: () => void) {
     this.linkedHandlers.push(fn);
   }
 
   async start() {
     this.auth = await usePostgresAuthState(this.sql);
-    this.connect();
+    await this.connect();
   }
 
-  private connect() {
+  private async connect() {
+    const { version } = await waVersion();
     const sock = makeWASocket({
+      version,
       auth: this.auth.state,
-      browser: Browsers.ubuntu("Chrome"),
-      logger: pino({ level: "silent" }),
+      browser: Browsers.macOS("Chrome"),
+      logger,
       markOnlineOnConnect: false,
+      // Recent history only (Baileys' default). Turning sync off entirely stops Baileys
+      // learning WhatsApp's LID contact mappings, which breaks sessions and group sends.
+      // The bridge registers no message handlers, so nothing from it is read or stored.
       syncFullHistory: false,
-      shouldSyncHistoryMessage: () => false,
       generateHighQualityLinkPreview: false,
     });
     this.sock = sock;
     sock.ev.on("creds.update", () => void this.auth.saveCreds());
     sock.ev.on("connection.update", (u) => {
       if (u.connection === "open") {
-        this.st = { state: "linked", me: digits(sock.user?.id), code: null, error: null };
+        this.st = { ...this.st, state: "linked", me: digits(sock.user?.id), code: null, error: null };
         console.log("whatsapp: linked");
         this.linkedHandlers.forEach((f) => f());
       }
-      if (u.qr && this.st.state !== "pairing") this.st = { ...this.st, state: "unlinked" };
+      if (u.qr && this.st.state === "starting") this.st = { ...this.st, state: "unlinked" };
       if (u.connection === "close") {
+        if (this.sock !== sock || this.stopping) return;
         const code = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
-        if (this.stopping) return;
+        this.socketClosed(code);
+        console.log(`whatsapp: connection closed: ${describeDisconnect(code)}`);
         if (code === DisconnectReason.loggedOut) {
-          console.log("whatsapp: logged out; waiting to be linked again");
+          this.st = { ...this.st, state: "unlinked", me: null, code: null, error: "Logged out on the phone. Link again." };
           void this.auth.clear().then(() => this.start());
-          this.st = { state: "unlinked", me: null, code: null, error: "Logged out on the phone. Link again." };
           return;
         }
-        console.log(`whatsapp: connection closed (${code ?? "unknown"}), reconnecting`);
-        setTimeout(() => this.connect(), code === DisconnectReason.restartRequired ? 0 : 3000);
+        if (this.st.state === "linked") this.st = { ...this.st, state: "starting" };
+        setTimeout(() => void this.connect(), code === DisconnectReason.restartRequired ? 0 : 3000);
       }
     });
   }
@@ -95,7 +162,7 @@ export class BaileysTransport implements Transport {
     if (!this.sock) throw new Error("not started");
     if (this.auth.state.creds.registered) throw new Error("already linked");
     const code = await this.sock.requestPairingCode(phone);
-    this.st = { state: "pairing", me: null, code, error: null };
+    this.issued(code);
     return code;
   }
 
@@ -113,10 +180,12 @@ export class BaileysTransport implements Transport {
   }
 
   async unlink() {
-    await this.sock?.logout().catch(() => {});
+    const old = this.sock;
+    this.sock = null;
+    await old?.logout().catch(() => {});
+    old?.end(undefined);
     await this.auth.clear();
-    this.st = { state: "unlinked", me: null, code: null, error: null };
-    this.sock?.end(undefined);
+    this.st = { ...this.st, state: "unlinked", me: null, code: null, error: null };
     await this.start();
   }
 
@@ -128,22 +197,27 @@ export class BaileysTransport implements Transport {
 
 /**
  * Test double: same behaviour from the outside, no network. Its "linked" flag is
- * kept in wa_auth so a restart stays linked, like the real login.
+ * kept in wa_auth so a restart stays linked, like the real login. `skewMs` moves
+ * its clock forward so tests can expire codes without waiting.
  */
-export class FakeTransport implements Transport {
-  st: TransportStatus = { state: "starting", me: null, code: null, error: null };
+export class FakeTransport extends PairingTracker implements Transport {
   sent: { jid: string; text: string; at: string }[] = [];
   failNext = 0;
+  skewMs = 0;
+  issuedCount = 0;
   groupList: Group[] = [
     { id: "120363000000000001@g.us", name: "🏠 Flat" },
     { id: "120363000000000002@g.us", name: "Family" },
   ];
   private linkedHandlers: (() => void)[] = [];
+  private pendingPhone = "";
 
-  constructor(private sql: postgres.Sql) {}
+  constructor(private sql: postgres.Sql) {
+    super();
+  }
 
-  status() {
-    return { ...this.st };
+  protected override now() {
+    return Date.now() + this.skewMs;
   }
   onLinked(fn: () => void) {
     this.linkedHandlers.push(fn);
@@ -151,21 +225,26 @@ export class FakeTransport implements Transport {
 
   async start() {
     const [r] = await this.sql`select value from wa_auth where key = 'fake-me'`;
-    this.st = r ? { state: "linked", me: r.value, code: null, error: null } : { state: "unlinked", me: null, code: null, error: null };
+    this.st = r ? { ...this.st, state: "linked", me: r.value, code: null, error: null } : { ...this.st, state: "unlinked", me: null, code: null };
     if (r) this.linkedHandlers.forEach((f) => f());
   }
   async link(phone: string) {
-    this.st = { state: "pairing", me: null, code: "TRSH4CD9", error: null };
+    this.issuedCount++;
+    const code = this.issuedCount === 1 ? "TRSH4CD9" : `TRSH4CD${this.issuedCount}`.slice(0, 8);
     this.pendingPhone = phone;
-    return "TRSH4CD9";
+    this.issued(code);
+    return code;
   }
-  private pendingPhone = "";
   /** What entering the code on the phone does. */
   async completeLink() {
     await this.sql`insert into wa_auth (key, value) values ('fake-me', ${this.pendingPhone || "491700000000"})
       on conflict (key) do update set value = excluded.value`;
-    this.st = { state: "linked", me: this.pendingPhone || "491700000000", code: null, error: null };
+    this.st = { ...this.st, state: "linked", me: this.pendingPhone || "491700000000", code: null, error: null };
     this.linkedHandlers.forEach((f) => f());
+  }
+  /** The connection dropping, as WhatsApp would close it. */
+  closeSocket(code = 428) {
+    this.socketClosed(code);
   }
   async groups() {
     return this.st.state === "linked" ? this.groupList : [];
@@ -180,7 +259,9 @@ export class FakeTransport implements Transport {
   }
   async unlink() {
     await this.sql`delete from wa_auth`;
-    this.st = { state: "unlinked", me: null, code: null, error: null };
+    this.st = { state: "unlinked", me: null, code: null, error: null, lastProblem: null };
+    this.issuedCount = 0;
+    this.skewMs = 0;
   }
   async stop() {}
 }
