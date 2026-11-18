@@ -18,8 +18,17 @@ export async function open(page: Page, hash: string, ready: string, at = WED) {
 // what other open test pages do must not change a screenshot
 export const masks = (page: Page) => [page.locator(".live"), page.getByTestId("conn-info")];
 
-/** Back to the seed (test mode only), for tests that tap buttons. */
+const bearer = { authorization: "Bearer visual-cron" };
+export const BRIDGE = "http://127.0.0.1:8092";
+
+/** Back to the seed (test mode only), for tests that tap buttons. Also unlinks the fake WhatsApp bridge. */
 export async function resetHouse(page: Page) {
-  const r = await page.request.post("/internal/test/reset", { headers: { authorization: "Bearer visual-cron" } });
+  const r = await page.request.post("/internal/test/reset", { headers: bearer });
   expect(r.ok()).toBe(true);
+  expect((await page.request.post(BRIDGE + "/fake/reset", { headers: bearer })).ok()).toBe(true);
+}
+
+/** What entering the link code on the phone does, for the fake bridge. */
+export async function completeWhatsAppLink(page: Page) {
+  expect((await page.request.post(BRIDGE + "/fake/complete-link", { headers: bearer })).ok()).toBe(true);
 }

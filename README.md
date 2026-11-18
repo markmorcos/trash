@@ -25,6 +25,15 @@ Every change is an event with who, when and what: `bin.taken_out` (as often as a
 
 On first start against a database from before event sourcing, the server imports the old `config`, `overrides`, `checkoffs` and `week_history` rows as events, with their original times and people, and leaves those tables untouched.
 
+## WhatsApp group
+
+The app can post to the flat's WhatsApp group: every take-out, away weeks and swaps (and their undos), the Sunday 18:00 reminder and Monday's new rota.
+
+- **How:** a second service, `whatsapp/` (the bridge), links to one person's WhatsApp number as a linked device, the same way WhatsApp Web does (Baileys, no browser). Meta's official API can't post into ordinary groups. It only posts; it never reads or answers messages.
+- **Set up:** Settings → WhatsApp group → enter the number → **Get link code**. Then on that phone: Linked devices → Link a device → Link with phone number instead, and type the code. Pick the group, then **Send test message**.
+- **Reliability:** posts are queued in `wa_outbox` in the same transaction as the event that caused them. The bridge sends them in order, at most one every 2 s, retries with backoff (5 attempts), and drops posts older than 12 h so an outage never floods the group. One bridge sends at a time (Postgres advisory lock); its login lives in `wa_auth`, so it needs no volume.
+- **Caveats:** linking a number this way is against WhatsApp's terms, so WhatsApp could restrict that number. Posts appear as sent by that person. The phone must come online every ~14 days or the link drops (the card then offers a new code).
+
 ## Stack
 
 | Part | What |

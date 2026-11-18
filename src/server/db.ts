@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { emptyHouse, apply, toState, type EventData, type House, type HouseEvent } from "../shared/events";
-import { DEFAULT_CONFIG, addDays, type Config, type State } from "../shared/rotation";
+import { postsFor, type Post } from "../shared/whatsapp";
+import { DEFAULT_CONFIG, addDays, currentWeek, type Config, type State } from "../shared/rotation";
 import { isTestMode, now } from "./clock";
 
 const url = process.env.DATABASE_URL;
@@ -40,6 +41,27 @@ create table if not exists notifications_sent (
   person text not null,
   sent_at timestamptz not null default now(),
   primary key (week, kind, person)
+);
+-- WhatsApp: posts waiting for the bridge, and the bridge's login (linked-device keys)
+create table if not exists wa_outbox (
+  id bigserial primary key,
+  kind text not null,
+  jid text not null,
+  text text not null,
+  created_at timestamptz not null default now(),
+  status text not null default 'pending' check (status in ('pending', 'sent', 'expired', 'failed')),
+  attempts int not null default 0,
+  last_tried_at timestamptz,
+  last_error text,
+  sent_at timestamptz,
+  -- the transaction that queued it (the same one as the event that caused it)
+  created_txid bigint not null default txid_current()
+);
+create index if not exists wa_outbox_pending on wa_outbox (id) where status = 'pending';
+create table if not exists wa_auth (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
 );
 `;
 
@@ -97,7 +119,7 @@ export async function resetForTests() {
   if (!isTestMode()) throw new Error("reset is only available in test mode");
   await sql.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${APPEND_LOCK})`;
-    await tx`truncate events, notifications_sent, push_subscriptions restart identity`;
+    await tx`truncate events, notifications_sent, push_subscriptions, wa_outbox restart identity`;
     await seed(tx);
     await tx`select pg_notify('rota_changed', 'reset')`;
   });
@@ -211,13 +233,48 @@ export async function append(actor: string | null, decide: (h: House) => EventDa
     await tx`select pg_advisory_xact_lock(${APPEND_LOCK})`;
     await refresh(tx);
     const datas = await decide(house);
+    const before: House = datas.length ? structuredClone(house) : house;
     const out: HouseEvent[] = [];
     for (const d of datas) {
       // the server clock, so tests that pin time get stable event times
       const r = await insertAt(tx, actor, d, now());
       out.push({ id: r.id, at: new Date(r.at).toISOString(), actor, data: d });
     }
-    if (out.length) await tx`select pg_notify('rota_changed', ${out[out.length - 1].id})`;
+    if (out.length) {
+      await tx`select pg_notify('rota_changed', ${out[out.length - 1].id})`;
+      // WhatsApp posts for these events, in the same transaction: a post exists exactly when its event does
+      const after = structuredClone(before);
+      for (const e of out) apply(after, e);
+      const week = after.config ? currentWeek(now(), after.config.timezone) : "";
+      for (const p of postsFor(datas, before, after, week)) await queuePost(tx, p, after);
+    }
     return out;
   }) as Promise<HouseEvent[]>;
+}
+
+/**
+ * Queue a WhatsApp post for the bridge, if posting is on. Uses `target` (default:
+ * the current house) to decide where it goes. Returns whether it was queued.
+ */
+export async function queuePost(q: postgres.Sql | postgres.TransactionSql, post: Post, target: House = house): Promise<boolean> {
+  const wa = target.whatsapp;
+  if (!wa?.enabled) return false;
+  await q`insert into wa_outbox (kind, jid, text) values (${post.kind}, ${wa.jid}, ${post.text})`;
+  await q`select pg_notify('wa_outbox', '')`;
+  return true;
+}
+
+export interface OutboxSummary {
+  pending: number;
+  lastSentAt: string | null;
+  lastError: string | null;
+}
+
+export async function outboxSummary(): Promise<OutboxSummary> {
+  const [r] = await sql`select
+      count(*) filter (where status = 'pending')::int as pending,
+      max(sent_at) as last_sent,
+      (select last_error from wa_outbox where last_error is not null order by id desc limit 1) as last_error
+    from wa_outbox`;
+  return { pending: r.pending, lastSentAt: r.last_sent ? new Date(r.last_sent).toISOString() : null, lastError: r.last_error };
 }

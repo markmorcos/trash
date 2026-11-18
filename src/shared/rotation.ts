@@ -70,6 +70,8 @@ export interface State {
   history: HistoryRow[];
   /** most recent events, newest first, for the Activity tab */
   activity: import("./events").HouseEvent[];
+  /** WhatsApp group posts go to (no secrets: just the group's id and name) */
+  whatsapp: import("./events").WhatsAppTarget | null;
 }
 
 export interface BinAssignment {

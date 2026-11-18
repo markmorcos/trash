@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 8090;
+const BRIDGE_PORT = 8092;
 const db = process.env.TEST_DATABASE_URL ?? "postgres://trash_app:dev@localhost:5433/trash_test";
 
 export default defineConfig({
@@ -23,7 +24,8 @@ export default defineConfig({
     { name: "phone-light", use: { ...devices["Pixel 7"], channel: "chromium", colorScheme: "light" } },
     { name: "phone-dark", use: { ...devices["Pixel 7"], channel: "chromium", colorScheme: "dark" } },
   ],
-  webServer: {
+  webServer: [
+  {
     // fresh database every run: the server seeds the fridge state on start
     command: "node test/support/reset-db.mjs && node dist/server.js",
     url: `http://127.0.0.1:${PORT}/healthz`,
@@ -41,6 +43,23 @@ export default defineConfig({
       VAPID_PUBLIC_KEY: "BDjKWRTECEJ_iyRuRcuxmOJykRWfzwu0PDeQtYSDiTXf5L2xvpplXcjFVR6n9mzhwIzm10SpoxyaE_xh8ACNt8g",
       VAPID_PRIVATE_KEY: "DyWivTX3YG1KA7cr1rXcPaKARgTvO5Xtb1u2gcx1ZHg",
       VAPID_SUBJECT: "https://trash.morcos.tech",
+      WA_BRIDGE_URL: `http://127.0.0.1:${BRIDGE_PORT}`,
     },
   },
+  {
+    // the WhatsApp bridge with its fake connection (no network); waits for the app's tables
+    command: "node --import tsx whatsapp/index.ts",
+    url: `http://127.0.0.1:${BRIDGE_PORT}/healthz`,
+    reuseExistingServer: false,
+    timeout: 60_000,
+    env: {
+      DATABASE_URL: db,
+      PORT: String(BRIDGE_PORT),
+      CRON_TOKEN: "visual-cron",
+      TRASH_TEST_MODE: "1",
+      WA_FAKE: "1",
+      WA_SEND_GAP_MS: "20",
+    },
+  },
+  ],
 });

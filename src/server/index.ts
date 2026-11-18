@@ -10,6 +10,8 @@ import { isTestMode, now, setNow } from "./clock";
 import { loadConfig, loadState, migrate, resetForTests, sql } from "./db";
 import { remind, rollover } from "./jobs";
 import { pushEnabled, vapidPublicKey } from "./push";
+import { ActionError } from "./actions";
+import { linkWhatsapp, sendTestPost, setWhatsappGroup, turnWhatsappOff, unlinkWhatsapp, whatsappStatus } from "./whatsapp";
 import { attach, broadcast, closeAll, listening } from "./ws";
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -124,6 +126,29 @@ async function route(req: IncomingMessage, res: ServerResponse) {
       return json(res, 200, await loadState(currentWeek(now(), config.timezone)));
     }
     if (m === "GET" && p === "/api/push/key") return json(res, 200, { key: vapidPublicKey });
+    if (p.startsWith("/api/whatsapp")) {
+      try {
+        if (m === "GET" && p === "/api/whatsapp") return json(res, 200, await whatsappStatus());
+        if (m === "POST" && p === "/api/whatsapp/link") return json(res, 200, await linkWhatsapp(await body(req)));
+        if (m === "POST" && p === "/api/whatsapp/unlink") return json(res, 200, await unlinkWhatsapp());
+        if (m === "POST" && p === "/api/whatsapp/group") {
+          await setWhatsappGroup(s.p, await body(req));
+          return json(res, 200, await whatsappStatus());
+        }
+        if (m === "POST" && p === "/api/whatsapp/off") {
+          await turnWhatsappOff(s.p);
+          return json(res, 200, await whatsappStatus());
+        }
+        if (m === "POST" && p === "/api/whatsapp/test") {
+          await sendTestPost(s.p);
+          return json(res, 202, { queued: true });
+        }
+      } catch (e) {
+        if (e instanceof ActionError) return json(res, e.code === "not_found" ? 404 : 409, { error: e.message });
+        throw e;
+      }
+      return json(res, 404, { error: "not found" });
+    }
     if (m === "POST" && p === "/api/push/subscribe") {
       const sub = Sub.parse(await body(req));
       await sql`insert into push_subscriptions (endpoint, person, p256dh, auth)
