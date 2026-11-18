@@ -49,6 +49,8 @@ describe("troubleshooting details", () => {
     r.push("two 491701234567", new Date("2026-11-18T15:00:02Z"));
     r.push("three", new Date("2026-11-18T15:00:03Z"));
     expect(r.all()).toEqual(["15:00:02 two •••567", "15:00:03 three"]);
+    r.clear();
+    expect(r.all()).toEqual([]);
   });
   it("say why WhatsApp refused a code request", () => {
     expect(refusedMessage(Object.assign(new Error("bad-request"), { data: 400 }))).toBe("WhatsApp refused the code request (400 bad-request)");

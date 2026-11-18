@@ -56,6 +56,9 @@ export class LogRing {
   all() {
     return [...this.lines];
   }
+  clear() {
+    this.lines = [];
+  }
 }
 
 /** What to tell people when WhatsApp refuses to hand out a link code. */

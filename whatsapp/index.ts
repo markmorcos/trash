@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { timingSafeEqual } from "node:crypto";
 import postgres from "postgres";
 import { SEND_GAP_MS, nextStep } from "../src/shared/whatsapp";
-import { BaileysTransport, FakeTransport, type Transport } from "./transport";
+import { BaileysTransport, FakeTransport, ring, type Transport } from "./transport";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
@@ -184,6 +184,7 @@ const server = createServer(async (req, res) => {
         await f.unlink();
         f.sent = [];
         f.failNext = 0;
+        ring.clear(); // each test starts with an empty troubleshooting log
         return json(res, 200, { ok: true });
       }
     }
